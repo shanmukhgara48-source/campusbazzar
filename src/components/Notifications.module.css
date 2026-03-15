@@ -1,0 +1,118 @@
+.pageHeader {
+  margin-bottom: 18px;
+}
+
+.pageHeader h2 {
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+
+.pageHeader p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.iconCol {
+  flex-shrink: 0;
+}
+
+.iconCircle {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #f0efeb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.time {
+  font-size: 11px;
+  color: #a0a0a0;
+  flex-shrink: 0;
+}
+
+.text {
+  font-size: 13px;
+  color: #4b4b4b;
+  margin-bottom: 6px;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pill {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.pill_chat {
+  background: #e0ecff;
+  color: #2154b5;
+}
+
+.pill_offer {
+  background: #e9f7ef;
+  color: #1a5c3a;
+}
+
+.pill_status {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.pill_meetup {
+  background: #fce7f3;
+  color: #9d174d;
+}
+
+.linkBtn {
+  margin-left: auto;
+  font-size: 11px;
+  border: none;
+  background: none;
+  color: #1a5c3a;
+  cursor: pointer;
+  padding: 0;
+}
+

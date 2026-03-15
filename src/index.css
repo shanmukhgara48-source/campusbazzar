@@ -1,0 +1,28 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --brand: #1a5c3a;
+  --brand-2: #2d7a52;
+  --brand-bg: #eef7f2;
+  --accent: #c8960c;
+  --accent-bg: #fdf7e8;
+  --surface: #ffffff;
+  --page: #f5f4f0;
+  --text: #1c1c1c;
+  --muted: #717171;
+  --faint: #a8a8a8;
+  --border: rgba(0,0,0,0.08);
+  --border-md: rgba(0,0,0,0.13);
+  --sidebar: 240px;
+  --radius: 10px;
+  --radius-lg: 14px;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--page);
+  color: var(--text);
+}
+
+button { font-family: 'Inter', sans-serif; cursor: pointer; }
+input, select, textarea { font-family: 'Inter', sans-serif; }

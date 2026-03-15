@@ -1,0 +1,169 @@
+.sidebar {
+  width: 68px;
+  background: #1a5c3a;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  height: 100vh;
+  overflow: hidden;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 20;
+}
+
+.sidebar.expanded {
+  width: 240px;
+}
+
+.sbTop {
+  display: flex;
+  align-items: center;
+  height: 60px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  overflow: hidden;
+}
+
+.sbToggle {
+  width: 68px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sbToggle:hover {
+  background: rgba(255,255,255,0.07);
+}
+
+.logoText {
+  white-space: nowrap;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.15s;
+  padding-left: 4px;
+}
+
+.expanded .logoText {
+  opacity: 1;
+  transition: opacity 0.2s 0.1s;
+}
+
+.logoText h1 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.2px;
+}
+
+.logoText p {
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  margin-top: 1px;
+}
+
+.sbRoles {
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.rtab {
+  flex: 1;
+  padding: 5px 2px;
+  font-size: 10px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 6px;
+  color: rgba(255,255,255,0.5);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+.rtabOn {
+  background: #c8960c;
+  border-color: #c8960c;
+  color: #1a1a1a;
+}
+
+.sbNav {
+  padding: 10px 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.ni {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.6);
+  font-size: 13px;
+  font-weight: 500;
+  border-left: 2px solid transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  position: relative;
+}
+
+.ni:hover {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.9);
+}
+
+.niOn {
+  color: #fff;
+  background: rgba(255,255,255,0.11);
+  border-left-color: #c8960c;
+}
+
+.niIcoWrap {
+  width: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.niLbl {
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+  flex: 1;
+}
+
+.expanded .niLbl {
+  opacity: 1;
+  transition: opacity 0.2s 0.08s;
+}
+
+.nbadge {
+  background: #c8960c;
+  color: #1a1a1a;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 99px;
+  min-width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  margin-right: 12px;
+}
+
+.sidebar:not(.expanded) .ni .nbadge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+}

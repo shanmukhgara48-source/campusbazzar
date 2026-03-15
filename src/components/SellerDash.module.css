@@ -1,0 +1,46 @@
+.pageHeader { margin-bottom: 24px; }
+.pageHeader h2 { font-family: 'Lora', serif; font-size: 21px; font-weight: 700; color: var(--brand); margin-bottom: 4px; }
+.pageHeader p { font-size: 13px; color: var(--muted); }
+
+.statsGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 28px; }
+
+.statCard { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); padding: 18px 20px; }
+.statLbl { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+.statVal { font-size: 24px; font-weight: 700; color: var(--brand); line-height: 1; }
+.statSub { font-size: 11px; color: #2d7a52; margin-top: 5px; }
+
+.secLbl { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+
+.myList { display: flex; flex-direction: column; gap: 12px; }
+
+.row { background: var(--surface); border-radius: var(--radius-lg); border: 1px solid var(--border); padding: 16px 20px; display: flex; align-items: center; gap: 16px; }
+
+.rowIcon { font-size: 24px; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--brand-bg); border-radius: 10px; flex-shrink: 0; }
+
+.rowInfo { flex: 1; min-width: 0; }
+.rowTitle { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+.rowMeta { font-size: 11px; color: var(--muted); }
+.rowStars {
+  color: #f5a623;
+  margin-left: 4px;
+}
+.rowRating {
+  font-weight: 600;
+  color: #1c1c1c;
+  margin-left: 2px;
+}
+.rowReviews {
+  margin-left: 2px;
+}
+
+.rowRight { text-align: right; flex-shrink: 0; }
+.rowPrice { font-size: 16px; font-weight: 700; color: var(--brand); }
+
+.pill { display: inline-block; padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; margin-top: 5px; }
+.pActive { background: var(--brand-bg); color: #0f5c30; }
+.pPending { background: var(--accent-bg); color: #7a5800; }
+
+.rowActions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.abtn { padding: 5px 11px; border-radius: 6px; border: 1px solid var(--border-md); background: var(--surface); font-size: 11px; font-weight: 500; cursor: pointer; color: var(--text); }
+.abtn:hover { background: var(--page); }
+.abtnR { color: #c0392b; border-color: rgba(192,57,43,0.2); }

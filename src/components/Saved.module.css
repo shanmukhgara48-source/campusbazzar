@@ -1,0 +1,37 @@
+.pageHeader { margin-bottom: 24px; }
+.pageHeader h2 { font-family: 'Lora', serif; font-size: 21px; font-weight: 700; color: var(--brand); margin-bottom: 4px; }
+.pageHeader p { font-size: 13px; color: var(--muted); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 16px; }
+
+.card { background: var(--surface); border-radius: var(--radius-lg); border: 1px solid var(--border); overflow: hidden; cursor: pointer; transition: transform 0.15s; }
+.card:hover { transform: translateY(-2px); }
+
+.cardImg { height: 116px; display: flex; align-items: center; justify-content: center; background: var(--brand-bg); }
+.cardBody { padding: 14px; }
+.cardTitle { font-size: 13px; font-weight: 600; line-height: 1.35; margin-bottom: 4px; }
+.cardMeta { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.cardRating {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.stars {
+  color: #f5a623;
+  font-size: 12px;
+}
+.ratingValue {
+  font-weight: 600;
+  color: #1c1c1c;
+}
+.reviewCount {
+  font-size: 11px;
+}
+.cardFoot { display: flex; align-items: center; justify-content: space-between; }
+.price { font-size: 15px; font-weight: 700; color: var(--brand); }
+.cond { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 5px; }
+.good { background: var(--brand-bg); color: #0f5c30; }
+.fair { background: var(--accent-bg); color: #7a5800; }
