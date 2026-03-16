@@ -16,10 +16,14 @@ import ProductDetail from './components/ProductDetail';
 import Cart from './components/Cart';
 import { MarketplaceProvider } from './MarketplaceContext';
 import { DEFAULT_PAGE } from './data';
+import StudentLogin from './components/StudentLogin';
+import { getStudent, logoutStudent } from './auth/studentAuth';
 
 export default function App() {
   const [role, setRole] = useState('buyer');
   const [page, setPage] = useState('browse');
+  const [student, setStudent] = useState(() => getStudent());
+  const [welcome, setWelcome] = useState('');
 
   const handleRoleChange = (r) => {
     setRole(r);
@@ -51,14 +55,42 @@ export default function App() {
 
   const isMessages = page === 'messages';
 
+  if (!student) {
+    return (
+      <StudentLogin
+        onSuccess={(s) => {
+          setStudent(s);
+          setWelcome(`Welcome, ${s.fullName || s.rollNumber || 'student'}!`);
+          setRole('buyer');
+          setPage(DEFAULT_PAGE.buyer);
+        }}
+      />
+    );
+  }
+
   return (
     <MarketplaceProvider>
       <div className="app">
         <Sidebar role={role} page={page} onRoleChange={handleRoleChange} onPageChange={handlePageChange} />
         <div className="main">
-          <Topbar role={role} onPageChange={handlePageChange} />
+          <Topbar
+            role={role}
+            student={student}
+            onLogout={() => {
+              logoutStudent();
+              setStudent(null);
+              setWelcome('');
+            }}
+            onPageChange={handlePageChange}
+          />
           <div className="scroll">
             <div className={isMessages ? 'page page--messages' : 'page'}>
+              {welcome ? (
+                <div className="welcome" role="status">
+                  <span>{welcome}</span>
+                  <button type="button" className="welcome__close" onClick={() => setWelcome('')}>Dismiss</button>
+                </div>
+              ) : null}
               {renderPage()}
             </div>
           </div>

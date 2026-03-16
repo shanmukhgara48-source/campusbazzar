@@ -479,6 +479,12 @@
   color: #4b4b4b;
 }
 
+.reviewBy {
+  font-size: 11px;
+  color: #6b6b6b;
+  font-weight: 600;
+}
+
 .reviewRatingText {
   font-size: 11px;
   color: #6b6b6b;

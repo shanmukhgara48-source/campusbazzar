@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import styles from './Messages.module.css';
+import { getStudent } from '../auth/studentAuth';
 
 const CONVERSATIONS = [
   { id: 1, name: 'Priya R.',  initials: 'PR', avColor: 'green',  item: 'HP Laptop 15s',        price: '₹28,000', dept: 'CSE · 2nd year', time: '2m ago',   unread: true,  preview: 'Is the laptop still available?' },
@@ -72,6 +73,7 @@ export default function Messages() {
   const [review, setReview] = useState('');
   const [submittedReview, setSubmittedReview] = useState(null);
   const bottomRef = useRef(null);
+  const me = getStudent();
 
   const activeConv = CONVERSATIONS.find(c => c.id === activeId);
 
@@ -152,10 +154,10 @@ export default function Messages() {
 
   const handleSubmitReview = () => {
     if (!rating) return;
-    const data = { rating, review: review.trim() };
+    const data = { rating, review: review.trim(), by: me?.fullName || me?.rollNumber || 'You' };
     setSubmittedReview(data);
     setShowRatingBox(false);
-    addSystemMessage(`You rated this transaction ${rating}/5: "${data.review || 'No written review'}".`);
+    addSystemMessage(`${data.by} rated this transaction ${rating}/5: "${data.review || 'No written review'}".`);
   };
 
   return (
@@ -316,6 +318,7 @@ export default function Messages() {
                   {'★'.repeat(submittedReview.rating)}{' '}
                   <span className={styles.reviewRatingText}>{submittedReview.rating}/5</span>
                 </div>
+                <div className={styles.reviewBy}>— {submittedReview.by}</div>
                 {submittedReview.review && (
                   <div className={styles.reviewText}>"{submittedReview.review}"</div>
                 )}

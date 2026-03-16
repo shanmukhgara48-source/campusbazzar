@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import styles from './ListItem.module.css';
+import { getStudent } from '../auth/studentAuth';
 
 export default function ListItem() {
   const [form, setForm] = useState({ title: '', category: 'Books', condition: 'Good', price: '', dept: '', description: '' });
   const [submitted, setSubmitted] = useState(false);
+  const student = getStudent();
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -14,7 +16,9 @@ export default function ListItem() {
         <div className={styles.successBox}>
           <span style={{ fontSize: 32 }}>🎉</span>
           <p style={{ fontWeight: 600, marginTop: 12 }}>"{form.title || 'Your item'}" has been listed.</p>
-          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 6 }}>Students will be able to find and message you about it.</p>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 6 }}>
+            Listed by <span style={{ fontWeight: 700, color: 'var(--text)' }}>{student?.fullName || student?.rollNumber || 'you'}</span>. Students will be able to find and message you about it.
+          </p>
           <button className={styles.subBtn} style={{ marginTop: 20 }} onClick={() => { setSubmitted(false); setForm({ title: '', category: 'Books', condition: 'Good', price: '', dept: '', description: '' }); }}>
             List another item
           </button>

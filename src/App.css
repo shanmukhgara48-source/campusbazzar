@@ -26,3 +26,26 @@
   overflow: hidden;
   height: 100%;
 }
+
+.welcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(26,92,58,0.18);
+  background: var(--brand-bg);
+  color: var(--brand);
+  font-weight: 700;
+  margin-bottom: 14px;
+  box-shadow: 0 10px 22px rgba(26, 92, 58, 0.08);
+}
+
+.welcome__close {
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font-weight: 800;
+  cursor: pointer;
+}

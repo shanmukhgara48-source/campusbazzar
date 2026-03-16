@@ -1,7 +1,7 @@
 import React from 'react';
 import styles from './Topbar.module.css';
 
-export default function Topbar({ role, onPageChange }) {
+export default function Topbar({ role, student, onLogout, onPageChange }) {
   return (
     <div className={styles.topbar}>
       <div className={styles.searchBar}>
@@ -22,12 +22,15 @@ export default function Topbar({ role, onPageChange }) {
           <path d="M8 14.5a1.5 1.5 0 003 0" stroke="#4b4b4b" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
       </button>
-      <div className={styles.verifiedBadge}>
+      <div className={styles.verifiedBadge} title={student?.email || 'Verified student'}>
         <svg width="11" height="11" viewBox="0 0 12 12">
           <path d="M10 3L5 9 2 6" stroke="#1a5c3a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
         </svg>
-        Verified student
+        {student?.fullName ? `${student.fullName} • ` : ''}Verified{student?.rollNumber ? ` • ${student.rollNumber}` : ''}
       </div>
+      <button className={styles.logoutBtn} type="button" onClick={() => onLogout && onLogout()}>
+        Log out
+      </button>
       <button
         className={styles.actionBtn}
         onClick={() => role === 'seller' ? onPageChange('list') : null}
