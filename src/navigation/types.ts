@@ -21,12 +21,16 @@ export type AuthStackParamList = {
 };
 
 export type HomeStackParamList = {
-  HomeMain: undefined;
+  HomeMain:    undefined;
   ListingDetail: { listingId: string };
-  Offer: { listingId: string };
-  Meetup: { listingId: string };
-  Ratings: { userId: string };
+  Offer:       { listingId: string };
+  Meetup:      { listingId: string };
+  Ratings:     { userId: string };
+  Transaction: { transactionId: string };
+  Wishlist:    undefined;
 };
+
+export type Chat = never; // satisfy TS in TransactionScreen navigate call
 
 export type MessagesStackParamList = {
   ConversationList: undefined;
@@ -34,10 +38,13 @@ export type MessagesStackParamList = {
 };
 
 export type ProfileStackParamList = {
-  ProfileMain: undefined;
-  EditProfile: undefined;
+  ProfileMain:    undefined;
+  EditProfile:    undefined;
   SellerDashboard: undefined;
-  AdminPanel: undefined;
+  AdminPanel:     undefined;
+  IDVerification: undefined;
+  Terms:          undefined;
+  ProhibitedItems: undefined;
 };
 
 export type MainTabParamList = {

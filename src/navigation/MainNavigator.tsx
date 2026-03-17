@@ -21,6 +21,11 @@ import NotificationsScreen from '../screens/notifications/NotificationsScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SellerDashboardScreen from '../screens/dashboard/SellerDashboardScreen';
 import AdminPanelScreen from '../screens/admin/AdminPanelScreen';
+import TransactionScreen from '../screens/transaction/TransactionScreen';
+import WishlistScreen from '../screens/wishlist/WishlistScreen';
+import IDVerificationScreen from '../screens/verification/IDVerificationScreen';
+import TermsScreen from '../screens/legal/TermsScreen';
+import ProhibitedItemsScreen from '../screens/legal/ProhibitedItemsScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
@@ -34,7 +39,9 @@ function HomeStackNavigator() {
       <HomeStack.Screen name="ListingDetail" component={ListingDetailScreen} />
       <HomeStack.Screen name="Offer" component={OfferScreen} />
       <HomeStack.Screen name="Meetup" component={MeetupScreen} />
-      <HomeStack.Screen name="Ratings" component={RatingsScreen} />
+      <HomeStack.Screen name="Ratings"      component={RatingsScreen} />
+      <HomeStack.Screen name="Transaction"  component={TransactionScreen} />
+      <HomeStack.Screen name="Wishlist"     component={WishlistScreen} />
     </HomeStack.Navigator>
   );
 }
@@ -52,8 +59,11 @@ function ProfileStackNavigator() {
   return (
     <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
       <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
-      <ProfileStack.Screen name="SellerDashboard" component={SellerDashboardScreen} />
-      <ProfileStack.Screen name="AdminPanel" component={AdminPanelScreen} />
+      <ProfileStack.Screen name="SellerDashboard"  component={SellerDashboardScreen} />
+      <ProfileStack.Screen name="AdminPanel"       component={AdminPanelScreen} />
+      <ProfileStack.Screen name="IDVerification"   component={IDVerificationScreen} />
+      <ProfileStack.Screen name="Terms"            component={TermsScreen} />
+      <ProfileStack.Screen name="ProhibitedItems"  component={ProhibitedItemsScreen} />
     </ProfileStack.Navigator>
   );
 }
@@ -67,7 +77,7 @@ export default function MainNavigator() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textTertiary,
         tabBarLabelStyle: styles.tabLabel,
-        tabBarIcon: ({ focused, color, size }) => {
+        tabBarIcon: ({ focused, color }) => {
           const icons: Record<string, [string, string]> = {
             Home: ['home', 'home-outline'],
             Messages: ['chatbubbles', 'chatbubbles-outline'],

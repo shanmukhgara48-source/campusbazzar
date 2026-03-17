@@ -1,4 +1,4 @@
-import { User, Listing, Conversation, Message, Notification, Review, Offer } from '../types';
+import { User, Listing, Conversation, Message, Notification, Review, Offer, Transaction } from '../types';
 
 export const CURRENT_USER_ID = 'user_1';
 
@@ -13,6 +13,7 @@ export const mockUsers: User[] = [
     college: 'IIT Bombay',
     role: 'buyer',
     isVerified: true,
+    verificationStatus: 'id_verified',
     rating: 4.8,
     reviewCount: 12,
     memberSince: 'Aug 2022',
@@ -29,6 +30,7 @@ export const mockUsers: User[] = [
     college: 'NIT Karnataka',
     role: 'seller',
     isVerified: true,
+    verificationStatus: 'id_verified',
     rating: 4.6,
     reviewCount: 24,
     memberSince: 'Jul 2021',
@@ -45,6 +47,7 @@ export const mockUsers: User[] = [
     college: 'BITS Pilani',
     role: 'seller',
     isVerified: true,
+    verificationStatus: 'email_verified',
     rating: 4.9,
     reviewCount: 7,
     memberSince: 'Jan 2023',
@@ -61,6 +64,7 @@ export const mockUsers: User[] = [
     college: 'IIT Madras',
     role: 'seller',
     isVerified: true,
+    verificationStatus: 'id_verified',
     rating: 4.3,
     reviewCount: 15,
     memberSince: 'Aug 2022',
@@ -77,6 +81,7 @@ export const mockUsers: User[] = [
     college: 'VIT Vellore',
     role: 'admin',
     isVerified: true,
+    verificationStatus: 'id_verified',
     rating: 5.0,
     reviewCount: 3,
     memberSince: 'Jun 2024',
@@ -506,5 +511,47 @@ export const mockOffers: Offer[] = [
     status: 'pending',
     message: 'Can you do ₹600?',
     timestamp: '2024-03-14T10:08:00Z',
+  },
+];
+
+export const MOCK_TRANSACTIONS: Transaction[] = [
+  {
+    id: 'txn_1',
+    listingId: 'listing_2',
+    listing: { ...({} as any) },          // populated at runtime from mockListings
+    buyerId: 'user_1',
+    buyer: { ...({} as any) },
+    sellerId: 'user_3',
+    seller: { ...({} as any) },
+    offerId: 'offer_1',
+    finalPrice: 27000,
+    paymentMethod: 'UPI',
+    meetupLocation: 'Library',
+    meetupTime: '2024-03-20T14:00:00Z',
+    status: 'meetup_set',
+    createdAt: '2024-03-14T09:30:00Z',
+    buyerConfirmed: false,
+    sellerConfirmed: false,
+    reviewLeft: false,
+  },
+  {
+    id: 'txn_2',
+    listingId: 'listing_1',
+    listing: { ...({} as any) },
+    buyerId: 'user_1',
+    buyer: { ...({} as any) },
+    sellerId: 'user_2',
+    seller: { ...({} as any) },
+    offerId: 'offer_2',
+    finalPrice: 600,
+    paymentMethod: 'Cash',
+    meetupLocation: 'Canteen',
+    meetupTime: '2024-03-18T11:00:00Z',
+    status: 'completed',
+    createdAt: '2024-03-14T10:08:00Z',
+    completedAt: '2024-03-18T11:30:00Z',
+    buyerConfirmed: true,
+    sellerConfirmed: true,
+    reviewLeft: true,
   },
 ];

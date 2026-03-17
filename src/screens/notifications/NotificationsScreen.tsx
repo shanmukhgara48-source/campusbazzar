@@ -13,11 +13,13 @@ import { mockNotifications } from '../../data/mockData';
 import { Notification, NotificationType } from '../../types';
 
 const iconMap: Record<NotificationType, { name: string; color: string; bg: string }> = {
-  message: { name: 'chatbubble', color: colors.info, bg: '#eff6ff' },
-  offer: { name: 'pricetag', color: colors.accent, bg: '#fffbeb' },
-  review: { name: 'star', color: colors.gold, bg: '#fefce8' },
-  listing_view: { name: 'eye', color: colors.primary, bg: '#f0fdf4' },
-  sale: { name: 'checkmark-circle', color: colors.success, bg: '#f0fdf4' },
+  message:        { name: 'chatbubble',       color: colors.info,    bg: '#eff6ff' },
+  offer:          { name: 'pricetag',         color: colors.accent,  bg: '#fffbeb' },
+  review:         { name: 'star',             color: colors.gold,    bg: '#fefce8' },
+  listing_view:   { name: 'eye',              color: colors.primary, bg: '#f0fdf4' },
+  sale:           { name: 'checkmark-circle', color: colors.success, bg: '#f0fdf4' },
+  wishlist_match: { name: 'notifications',    color: colors.primary, bg: '#e8f5ee' },
+  system:         { name: 'information-circle', color: colors.textSecondary, bg: colors.background },
 };
 
 function NotificationItem({ notif, onPress }: { notif: Notification; onPress: () => void }) {
