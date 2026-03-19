@@ -2,7 +2,7 @@
 export type UserRole         = 'buyer' | 'seller' | 'admin';
 export type ItemCondition    = 'New' | 'Like New' | 'Good' | 'Fair' | 'Poor';
 export type ItemCategory     = 'Books' | 'Laptops' | 'Calculators' | 'Electronics' | 'Other';
-export type PaymentMethod    = 'Cash' | 'UPI' | 'Bank Transfer';
+export type PaymentMethod    = 'Cash' | 'UPI' | 'Bank Transfer' | 'Razorpay';
 export type MeetupLocation   = 'Library' | 'Canteen' | 'Admin Gate' | 'Main Block' | 'Hostel Block';
 export type NotificationType = 'message' | 'offer' | 'review' | 'listing_view' | 'sale' | 'wishlist_match' | 'system';
 export type OfferStatus      = 'pending' | 'accepted' | 'declined' | 'countered';

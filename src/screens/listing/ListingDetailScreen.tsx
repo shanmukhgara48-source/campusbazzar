@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,15 +8,31 @@ import {
   Image,
   Dimensions,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { doc, getDoc } from 'firebase/firestore';
+import { getOrCreateChat } from '../../services/chatService';
 import { HomeStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 import { mockListings, mockReviews } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
+import { useFavourites } from '../../context/FavouritesContext';
+import { db } from '../../services/firebase';
+import { Listing } from '../../types';
+import { Timestamp } from 'firebase/firestore';
+
+function formatTimestamp(value: unknown): string {
+  if (!value) return '';
+  if (value instanceof Timestamp) {
+    return value.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  if (typeof value === 'string') return value;
+  return '';
+}
 
 const { width } = Dimensions.get('window');
 
@@ -37,20 +53,58 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { listingId } = route.params;
-  const listing = mockListings.find(l => l.id === listingId);
+  const { isFavourite, toggle: toggleSaved } = useFavourites();
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(true);
   const [currentImage, setCurrentImage] = useState(0);
-  const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    const fetchListing = async () => {
+      console.log('[ListingDetail] fetching id:', listingId);
+      try {
+        // Try Firestore first
+        const snap = await getDoc(doc(db, 'listings', listingId));
+        if (snap.exists()) {
+          setListing({ id: snap.id, ...snap.data() } as Listing);
+        } else {
+          // Fall back to mock data (for mock IDs like "listing_1")
+          const mock = mockListings.find(l => l.id === listingId) ?? null;
+          console.log('[ListingDetail] not in Firestore, mock fallback:', mock?.id ?? 'not found');
+          setListing(mock);
+        }
+      } catch (e) {
+        console.log('[ListingDetail] Firestore error, using mock fallback:', e);
+        setListing(mockListings.find(l => l.id === listingId) ?? null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchListing();
+  }, [listingId]);
+
+  if (loading) {
+    return (
+      <View style={styles.notFound}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   if (!listing) {
     return (
       <View style={styles.notFound}>
-        <Text>Listing not found</Text>
+        <Ionicons name="alert-circle-outline" size={48} color={colors.textTertiary} />
+        <Text style={{ color: colors.textSecondary, marginTop: spacing.md }}>Listing not found</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: spacing.lg }}>
+          <Text style={{ color: colors.primary, fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   const sellerReviews = mockReviews.filter(r => r.sellerId === listing.sellerId);
-  const isOwnListing = user?.id === listing.sellerId;
+  const isOwnListing = user?.uid === listing.sellerId;
+  const isSold = listing.status === 'sold';
   const discount = listing.originalPrice
     ? Math.round(((listing.originalPrice - listing.price) / listing.originalPrice) * 100)
     : null;
@@ -79,11 +133,11 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
               <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
             </TouchableOpacity>
             <View style={styles.galleryTopRight}>
-              <TouchableOpacity style={styles.galleryBtn} onPress={() => setIsSaved(!isSaved)}>
+              <TouchableOpacity style={styles.galleryBtn} onPress={() => toggleSaved(listingId)}>
                 <Ionicons
-                  name={isSaved ? 'heart' : 'heart-outline'}
+                  name={isFavourite(listingId) ? 'heart' : 'heart-outline'}
                   size={22}
-                  color={isSaved ? colors.error : colors.textPrimary}
+                  color={isFavourite(listingId) ? colors.error : colors.textPrimary}
                 />
               </TouchableOpacity>
               <TouchableOpacity style={styles.galleryBtn}>
@@ -101,9 +155,14 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
             </View>
           )}
 
-          {discount && (
+          {discount && !isSold && (
             <View style={styles.discountBadge}>
               <Text style={styles.discountText}>{discount}% off</Text>
+            </View>
+          )}
+          {isSold && (
+            <View style={styles.soldOverlay}>
+              <Text style={styles.soldOverlayText}>SOLD</Text>
             </View>
           )}
         </View>
@@ -148,7 +207,7 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
               <View style={styles.metaDot} />
               <View style={styles.metaItem}>
                 <Ionicons name="time-outline" size={14} color={colors.textTertiary} />
-                <Text style={styles.metaText}>{listing.createdAt}</Text>
+                <Text style={styles.metaText}>{formatTimestamp(listing.createdAt)}</Text>
               </View>
             </View>
           </View>
@@ -167,25 +226,33 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
               onPress={() => navigation.navigate('Ratings', { userId: listing.sellerId })}
               activeOpacity={0.85}
             >
-              <Image source={{ uri: listing.seller.avatar }} style={styles.sellerAvatar} />
+              {listing.seller?.avatar && (
+                <Image source={{ uri: listing.seller.avatar }} style={styles.sellerAvatar} />
+              )}
               <View style={styles.sellerInfo}>
                 <View style={styles.sellerNameRow}>
-                  <Text style={styles.sellerName}>{listing.seller.name}</Text>
-                  {listing.seller.isVerified && (
+                  <Text style={styles.sellerName}>{listing.seller?.name ?? 'Seller'}</Text>
+                  {listing.seller?.isVerified && (
                     <Ionicons name="checkmark-circle" size={16} color={colors.verified} />
                   )}
                 </View>
-                <Text style={styles.sellerCollege}>{listing.seller.college} · {listing.seller.department}</Text>
+                <Text style={styles.sellerCollege}>
+                  {[listing.seller?.college, listing.seller?.department].filter(Boolean).join(' · ')}
+                </Text>
                 <View style={styles.sellerStats}>
                   <View style={styles.statItem}>
                     <Ionicons name="star" size={12} color={colors.gold} />
-                    <Text style={styles.statText}>{listing.seller.rating} ({listing.seller.reviewCount})</Text>
+                    <Text style={styles.statText}>
+                      {listing.seller?.rating ?? '—'} ({listing.seller?.reviewCount ?? 0})
+                    </Text>
                   </View>
                   <Text style={styles.statSep}>·</Text>
-                  <Text style={styles.statText}>{listing.seller.totalSales} sales</Text>
-                  <Text style={styles.statSep}>·</Text>
-                  <Ionicons name="time-outline" size={12} color={colors.textTertiary} />
-                  <Text style={styles.statText}>{listing.seller.responseTime}</Text>
+                  <Text style={styles.statText}>{listing.seller?.totalSales ?? 0} sales</Text>
+                  {listing.seller?.responseTime && <>
+                    <Text style={styles.statSep}>·</Text>
+                    <Ionicons name="time-outline" size={12} color={colors.textTertiary} />
+                    <Text style={styles.statText}>{listing.seller.responseTime}</Text>
+                  </>}
                 </View>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
@@ -234,22 +301,62 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
           <TouchableOpacity
             style={styles.messageBtn}
-            onPress={() => Alert.alert('Message', 'Chat feature available in Messages tab')}
+            onPress={async () => {
+              if (!user?.uid) {
+                Alert.alert('Login required', 'Please log in to message sellers.');
+                return;
+              }
+              if (!listing.sellerId) {
+                Alert.alert('Error', 'Seller information is missing for this listing.');
+                return;
+              }
+              console.log('[ListingDetail] Message pressed', {
+                buyerId:  user.uid,
+                sellerId: listing.sellerId,
+                listing:  listing.id,
+              });
+              try {
+                const names: Record<string, string> = {
+                  [user.uid]:          user.name || user.email || 'Buyer',
+                  [listing.sellerId]:  listing.seller?.name  || 'Seller',
+                };
+                const chatId = await getOrCreateChat(
+                  user.uid,
+                  listing.sellerId,
+                  names,
+                  listing.title,
+                );
+                navigation.navigate('FirebaseChat', {
+                  chatId,
+                  otherUserId:   listing.sellerId,
+                  otherUserName: listing.seller?.name || 'Seller',
+                  listingTitle:  listing.title,
+                });
+              } catch (e: any) {
+                console.error('[ListingDetail] chat error:', e?.code, e?.message, e);
+                Alert.alert(
+                  'Could Not Open Chat',
+                  e?.message ?? 'Please try again.',
+                );
+              }
+            }}
           >
             <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
             <Text style={styles.messageBtnText}>Message</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.offerBtn}
-            onPress={() => navigation.navigate('Offer', { listingId: listing.id })}
+            style={[styles.offerBtn, isSold && styles.btnDisabled]}
+            onPress={() => !isSold && navigation.navigate('Offer', { listingId: listing.id })}
+            disabled={isSold}
           >
-            <Text style={styles.offerBtnText}>Make Offer</Text>
+            <Text style={styles.offerBtnText}>{isSold ? 'Sold' : 'Make Offer'}</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.buyBtn}
-            onPress={() => navigation.navigate('Meetup', { listingId: listing.id })}
+            style={[styles.buyBtn, isSold && styles.btnDisabled]}
+            onPress={() => !isSold && navigation.navigate('Meetup', { listingId: listing.id })}
+            disabled={isSold}
           >
-            <Text style={styles.buyBtnText}>Buy Now</Text>
+            <Text style={styles.buyBtnText}>{isSold ? 'Sold' : 'Buy Now'}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -322,6 +429,21 @@ const styles = StyleSheet.create({
   dotActive: {
     backgroundColor: '#fff',
     width: 18,
+  },
+  soldOverlay: {
+    position: 'absolute',
+    bottom: spacing.md,
+    right: spacing.lg,
+    backgroundColor: colors.error,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs,
+  },
+  soldOverlayText: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    color: '#fff',
+    letterSpacing: 1,
   },
   discountBadge: {
     position: 'absolute',
@@ -577,6 +699,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.semibold,
     color: colors.primary,
   },
+  btnDisabled: { opacity: 0.45 },
   offerBtn: {
     flex: 1,
     alignItems: 'center',

@@ -1,36 +1,48 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, typography } from '../../theme';
-import { mockNotifications } from '../../data/mockData';
-import { Notification, NotificationType } from '../../types';
+import { useAuth } from '../../context/AuthContext';
+import {
+  useNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  FSNotification,
+  FSNotifType,
+} from '../../services/notificationsService';
 
-const iconMap: Record<NotificationType, { name: string; color: string; bg: string }> = {
-  message:        { name: 'chatbubble',       color: colors.info,    bg: '#eff6ff' },
-  offer:          { name: 'pricetag',         color: colors.accent,  bg: '#fffbeb' },
-  review:         { name: 'star',             color: colors.gold,    bg: '#fefce8' },
-  listing_view:   { name: 'eye',              color: colors.primary, bg: '#f0fdf4' },
-  sale:           { name: 'checkmark-circle', color: colors.success, bg: '#f0fdf4' },
-  wishlist_match: { name: 'notifications',    color: colors.primary, bg: '#e8f5ee' },
-  system:         { name: 'information-circle', color: colors.textSecondary, bg: colors.background },
+const iconMap: Record<FSNotifType, { name: string; color: string; bg: string }> = {
+  message:        { name: 'chatbubble',         color: colors.info,          bg: '#eff6ff' },
+  offer:          { name: 'pricetag',            color: colors.accent,        bg: '#fffbeb' },
+  review:         { name: 'star',                color: colors.gold,          bg: '#fefce8' },
+  listing_view:   { name: 'eye',                 color: colors.primary,       bg: '#f0fdf4' },
+  sale:           { name: 'checkmark-circle',    color: colors.success,       bg: '#f0fdf4' },
+  wishlist_match: { name: 'notifications',       color: colors.primary,       bg: '#e8f5ee' },
+  system:         { name: 'information-circle',  color: colors.textSecondary, bg: colors.background },
 };
 
-function NotificationItem({ notif, onPress }: { notif: Notification; onPress: () => void }) {
-  const icon = iconMap[notif.type];
-  const timestamp = new Date(notif.timestamp);
-  const now = new Date();
-  const diffHours = Math.round((now.getTime() - timestamp.getTime()) / (1000 * 60 * 60));
-  const timeAgo = diffHours < 1 ? 'Just now'
-    : diffHours < 24 ? `${diffHours}h ago`
-    : `${Math.round(diffHours / 24)}d ago`;
+function timeAgo(value: unknown): string {
+  if (!value) return '';
+  const date = (value as any)?.toDate?.() ?? new Date(value as string);
+  const diffMs = Date.now() - date.getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1)   return 'Just now';
+  if (mins < 60)  return `${mins}m ago`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+  return `${Math.floor(mins / 1440)}d ago`;
+}
 
+function NotificationItem({
+  notif,
+  onPress,
+}: {
+  notif: FSNotification;
+  onPress: () => void;
+}) {
+  const icon = iconMap[notif.type] ?? iconMap.system;
   return (
     <TouchableOpacity
       style={[styles.notifItem, !notif.isRead && styles.notifItemUnread]}
@@ -45,7 +57,7 @@ function NotificationItem({ notif, onPress }: { notif: Notification; onPress: ()
           {notif.title}
         </Text>
         <Text style={styles.notifBody} numberOfLines={2}>{notif.body}</Text>
-        <Text style={styles.notifTime}>{timeAgo}</Text>
+        <Text style={styles.notifTime}>{timeAgo(notif.createdAt)}</Text>
       </View>
       {!notif.isRead && <View style={styles.unreadDot} />}
     </TouchableOpacity>
@@ -54,30 +66,29 @@ function NotificationItem({ notif, onPress }: { notif: Notification; onPress: ()
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const { user } = useAuth();
+  const { notifications, unreadCount, loading } = useNotifications(user?.uid);
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
-
-  const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+  const handleMarkRead = (notif: FSNotification) => {
+    if (!notif.isRead) markNotificationRead(notif.id).catch(console.warn);
   };
 
-  const markRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+  const handleMarkAllRead = () => {
+    const unreadIds = notifications.filter(n => !n.isRead).map(n => n.id);
+    markAllNotificationsRead(unreadIds).catch(console.warn);
   };
 
-  const grouped = {
-    today: notifications.filter(n => {
-      const d = new Date(n.timestamp);
-      const now = new Date();
-      return d.toDateString() === now.toDateString();
-    }),
-    earlier: notifications.filter(n => {
-      const d = new Date(n.timestamp);
-      const now = new Date();
-      return d.toDateString() !== now.toDateString();
-    }),
-  };
+  // Group into Today vs Earlier
+  const today = new Date().toDateString();
+  const grouped = notifications.reduce<{ today: FSNotification[]; earlier: FSNotification[] }>(
+    (acc, n) => {
+      const d = (n.createdAt as any)?.toDate?.() ?? new Date(n.createdAt as string);
+      if (d.toDateString() === today) acc.today.push(n);
+      else acc.earlier.push(n);
+      return acc;
+    },
+    { today: [], earlier: [] },
+  );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -89,37 +100,51 @@ export default function NotificationsScreen() {
           )}
         </View>
         {unreadCount > 0 && (
-          <TouchableOpacity style={styles.markAllBtn} onPress={markAllRead}>
+          <TouchableOpacity style={styles.markAllBtn} onPress={handleMarkAllRead}>
             <Text style={styles.markAllText}>Mark all read</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      <FlatList
-        data={[]}
-        renderItem={() => null}
-        ListHeaderComponent={() => (
-          <View>
-            {grouped.today.length > 0 && (
-              <View>
-                <Text style={styles.groupLabel}>Today</Text>
-                {grouped.today.map(n => (
-                  <NotificationItem key={n.id} notif={n} onPress={() => markRead(n.id)} />
-                ))}
-              </View>
-            )}
-            {grouped.earlier.length > 0 && (
-              <View>
-                <Text style={styles.groupLabel}>Earlier</Text>
-                {grouped.earlier.map(n => (
-                  <NotificationItem key={n.id} notif={n} onPress={() => markRead(n.id)} />
-                ))}
-              </View>
-            )}
-          </View>
-        )}
-        showsVerticalScrollIndicator={false}
-      />
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      ) : notifications.length === 0 ? (
+        <View style={styles.center}>
+          <Ionicons name="notifications-outline" size={64} color={colors.textTertiary} />
+          <Text style={styles.emptyTitle}>No notifications yet</Text>
+          <Text style={styles.emptySubtitle}>
+            We'll notify you about messages, offers, and activity
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={[]}
+          renderItem={null}
+          ListHeaderComponent={() => (
+            <View>
+              {grouped.today.length > 0 && (
+                <View>
+                  <Text style={styles.groupLabel}>Today</Text>
+                  {grouped.today.map(n => (
+                    <NotificationItem key={n.id} notif={n} onPress={() => handleMarkRead(n)} />
+                  ))}
+                </View>
+              )}
+              {grouped.earlier.length > 0 && (
+                <View>
+                  <Text style={styles.groupLabel}>Earlier</Text>
+                  {grouped.earlier.map(n => (
+                    <NotificationItem key={n.id} notif={n} onPress={() => handleMarkRead(n)} />
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
     </View>
   );
 }
@@ -159,6 +184,23 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.semibold,
     color: colors.primary,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.xl,
+  },
+  emptyTitle: {
+    fontSize: typography.sizes.xl,
+    fontWeight: typography.weights.semibold,
+    color: colors.textSecondary,
+  },
+  emptySubtitle: {
+    fontSize: typography.sizes.sm,
+    color: colors.textTertiary,
+    textAlign: 'center',
   },
   groupLabel: {
     fontSize: typography.sizes.xs,

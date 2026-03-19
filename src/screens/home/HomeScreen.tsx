@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,18 +12,19 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { HomeStackParamList } from '../../navigation/types';
+import { HomeScreenNavigationProp } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 import { mockListings } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
 import { Listing, ItemCategory } from '../../types';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - spacing.xl * 2 - spacing.md) / 2;
 
 type Props = {
-  navigation: NativeStackNavigationProp<HomeStackParamList, 'HomeMain'>;
+  navigation: HomeScreenNavigationProp;
 };
 
 const CATEGORIES: { label: string; icon: string; value: ItemCategory | 'All' }[] = [
@@ -51,7 +52,9 @@ function ListingCard({ listing, onPress }: { listing: Listing; onPress: () => vo
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.92}>
       <View style={styles.cardImageContainer}>
-        <Image source={{ uri: listing.images[0] }} style={styles.cardImage} />
+        {listing.images?.[0] && (
+          <Image source={{ uri: listing.images[0] }} style={styles.cardImage} />
+        )}
         {listing.isFeatured && (
           <View style={styles.featuredBadge}>
             <Ionicons name="star" size={10} color="#fff" />
@@ -67,7 +70,7 @@ function ListingCard({ listing, onPress }: { listing: Listing; onPress: () => vo
       </View>
       <View style={styles.cardBody}>
         <Text style={styles.cardTitle} numberOfLines={2}>{listing.title}</Text>
-        <Text style={styles.cardPrice}>₹{listing.price.toLocaleString('en-IN')}</Text>
+        <Text style={styles.cardPrice}>₹{(listing.price ?? 0).toLocaleString('en-IN')}</Text>
         {listing.originalPrice && (
           <Text style={styles.cardOriginalPrice}>₹{listing.originalPrice.toLocaleString('en-IN')}</Text>
         )}
@@ -81,9 +84,13 @@ function ListingCard({ listing, onPress }: { listing: Listing; onPress: () => vo
           </View>
         </View>
         <View style={styles.cardSeller}>
-          <Image source={{ uri: listing.seller.avatar }} style={styles.sellerAvatar} />
-          <Text style={styles.sellerName} numberOfLines={1}>{listing.seller.name.split(' ')[0]}</Text>
-          {listing.seller.isVerified && (
+          {listing.seller?.avatar && (
+            <Image source={{ uri: listing.seller.avatar }} style={styles.sellerAvatar} />
+          )}
+          <Text style={styles.sellerName} numberOfLines={1}>
+            {listing.seller?.name?.split(' ')[0] ?? 'Seller'}
+          </Text>
+          {listing.seller?.isVerified && (
             <Ionicons name="checkmark-circle" size={12} color={colors.verified} />
           )}
         </View>
@@ -97,14 +104,30 @@ export default function HomeScreen({ navigation }: Props) {
   const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<ItemCategory | 'All'>('All');
+  const [listings, setListings] = useState<Listing[]>(mockListings);
 
-  const filtered = mockListings.filter(l => {
+  useEffect(() => {
+    const fetchListings = async () => {
+      try {
+        const snap = await getDocs(query(collection(db, 'listings'), orderBy('createdAt', 'desc')));
+        if (!snap.empty) {
+          const fetched = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Listing));
+          setListings(fetched);
+        }
+      } catch {
+        // Firestore not yet configured — keep mock data
+      }
+    };
+    fetchListings();
+  }, []);
+
+  const filtered = listings.filter(l => {
     const matchSearch = !search || l.title.toLowerCase().includes(search.toLowerCase());
     const matchCategory = selectedCategory === 'All' || l.category === selectedCategory;
     return matchSearch && matchCategory;
   });
 
-  const featured = mockListings.filter(l => l.isFeatured);
+  const featured = listings.filter(l => l.isFeatured);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -114,7 +137,7 @@ export default function HomeScreen({ navigation }: Props) {
           <Text style={styles.greeting}>Hello, {user?.name.split(' ')[0]} 👋</Text>
           <Text style={styles.headerSubtitle}>Find great deals on campus</Text>
         </View>
-        <TouchableOpacity style={styles.notifBtn}>
+        <TouchableOpacity style={styles.notifBtn} onPress={() => navigation.navigate('Notifications')}>
           <Ionicons name="notifications-outline" size={22} color={colors.textPrimary} />
           <View style={styles.notifDot} />
         </TouchableOpacity>
@@ -181,7 +204,10 @@ export default function HomeScreen({ navigation }: Props) {
                 <TouchableOpacity
                   key={listing.id}
                   style={styles.featuredCard}
-                  onPress={() => navigation.navigate('ListingDetail', { listingId: listing.id })}
+                  onPress={() => {
+                    console.log('[HomeScreen] navigating to listing:', listing.id);
+                    navigation.navigate('ListingDetail', { listingId: listing.id });
+                  }}
                   activeOpacity={0.92}
                 >
                   <Image source={{ uri: listing.images[0] }} style={styles.featuredImage} />
@@ -217,7 +243,10 @@ export default function HomeScreen({ navigation }: Props) {
                 <ListingCard
                   key={listing.id}
                   listing={listing}
-                  onPress={() => navigation.navigate('ListingDetail', { listingId: listing.id })}
+                  onPress={() => {
+                    console.log('[HomeScreen] navigating to listing:', listing.id);
+                    navigation.navigate('ListingDetail', { listingId: listing.id });
+                  }}
                 />
               ))}
             </View>

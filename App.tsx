@@ -6,6 +6,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import { NetworkProvider } from './src/context/NetworkContext';
 import { FavouritesProvider } from './src/context/FavouritesContext';
 import { TransactionProvider } from './src/context/TransactionContext';
+import { WatcherProvider } from './src/context/WatcherContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
 export default function App() {
@@ -15,8 +16,10 @@ export default function App() {
         <AuthProvider>
           <FavouritesProvider>
             <TransactionProvider>
-              <AppNavigator />
-              <StatusBar style="auto" />
+              <WatcherProvider>
+                <AppNavigator />
+                <StatusBar style="auto" />
+              </WatcherProvider>
             </TransactionProvider>
           </FavouritesProvider>
         </AuthProvider>

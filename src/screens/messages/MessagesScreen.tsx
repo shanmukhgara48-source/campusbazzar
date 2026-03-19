@@ -1,67 +1,89 @@
 import React from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Image,
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MessagesStackParamList } from '../../navigation/types';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
-import { mockConversations, CURRENT_USER_ID } from '../../data/mockData';
-import { Conversation } from '../../types';
+import { colors, spacing, borderRadius, typography } from '../../theme';
+import { useAuth } from '../../context/AuthContext';
+import { useUserChats, FSChat } from '../../services/chatService';
 
 type Props = {
   navigation: NativeStackNavigationProp<MessagesStackParamList, 'ConversationList'>;
 };
 
-function ConversationItem({ conv, onPress }: { conv: Conversation; onPress: () => void }) {
-  const isUnread = conv.unreadCount > 0;
-  const isMyMessage = conv.lastMessage.senderId === CURRENT_USER_ID;
-  const timestamp = new Date(conv.lastMessage.timestamp);
-  const timeStr = timestamp.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+function formatTime(value: unknown): string {
+  if (!value) return '';
+  const date = (value as any)?.toDate?.() ?? new Date(value as string);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'now';
+  if (diffMins < 60) return `${diffMins}m`;
+  if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h`;
+  return `${Math.floor(diffMins / 1440)}d`;
+}
+
+function ChatItem({
+  chat,
+  currentUid,
+  onPress,
+}: {
+  chat: FSChat;
+  currentUid: string;
+  onPress: () => void;
+}) {
+  const otherUid = chat.participants.find(p => p !== currentUid) ?? '';
+  const otherName = chat.participantNames?.[otherUid] ?? 'Unknown';
+  const unread = chat.unreadCounts?.[currentUid] ?? 0;
+  const initials = otherName
+    .split(' ')
+    .slice(0, 2)
+    .map(w => w[0])
+    .join('')
+    .toUpperCase();
 
   return (
-    <TouchableOpacity style={[styles.convItem, isUnread && styles.convItemUnread]} onPress={onPress} activeOpacity={0.85}>
-      <View style={styles.avatarContainer}>
-        <Image source={{ uri: conv.otherUser.avatar }} style={styles.avatar} />
-        {conv.otherUser.isVerified && (
-          <View style={styles.verifiedBadge}>
-            <Ionicons name="checkmark-circle" size={14} color={colors.verified} />
-          </View>
-        )}
+    <TouchableOpacity
+      style={[styles.chatItem, unread > 0 && styles.chatItemUnread]}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      {/* Avatar — initials fallback since we don't store avatar URLs in chat doc */}
+      <View style={styles.avatar}>
+        <Text style={styles.avatarText}>{initials}</Text>
       </View>
 
-      <View style={styles.convContent}>
-        <View style={styles.convTopRow}>
-          <Text style={[styles.convName, isUnread && styles.convNameUnread]}>
-            {conv.otherUser.name}
+      <View style={styles.chatContent}>
+        <View style={styles.chatTopRow}>
+          <Text style={[styles.chatName, unread > 0 && styles.chatNameUnread]} numberOfLines={1}>
+            {otherName}
           </Text>
-          <Text style={[styles.convTime, isUnread && styles.convTimeUnread]}>{timeStr}</Text>
+          <Text style={[styles.chatTime, unread > 0 && styles.chatTimeUnread]}>
+            {formatTime(chat.lastMessageAt)}
+          </Text>
         </View>
 
-        <View style={styles.listingPreview}>
-          <Ionicons name="pricetag-outline" size={10} color={colors.textTertiary} />
-          <Text style={styles.listingTitle} numberOfLines={1}>{conv.listing.title}</Text>
-          <Text style={styles.listingPrice}>₹{conv.listing.price.toLocaleString('en-IN')}</Text>
-        </View>
-
-        <View style={styles.convBottomRow}>
-          <View style={styles.lastMessageRow}>
-            {isMyMessage && (
-              <Ionicons name="checkmark-done" size={14} color={conv.lastMessage.isRead ? colors.primary : colors.textTertiary} />
-            )}
-            <Text style={[styles.lastMessage, isUnread && styles.lastMessageUnread]} numberOfLines={1}>
-              {conv.lastMessage.text}
-            </Text>
+        {!!chat.listingTitle && (
+          <View style={styles.listingRow}>
+            <Ionicons name="pricetag-outline" size={10} color={colors.textTertiary} />
+            <Text style={styles.listingTitle} numberOfLines={1}>{chat.listingTitle}</Text>
           </View>
-          {conv.unreadCount > 0 && (
+        )}
+
+        <View style={styles.chatBottomRow}>
+          <Text
+            style={[styles.lastMessage, unread > 0 && styles.lastMessageUnread]}
+            numberOfLines={1}
+          >
+            {chat.lastMessage || 'No messages yet'}
+          </Text>
+          {unread > 0 && (
             <View style={styles.unreadBadge}>
-              <Text style={styles.unreadCount}>{conv.unreadCount}</Text>
+              <Text style={styles.unreadText}>{unread > 9 ? '9+' : unread}</Text>
             </View>
           )}
         </View>
@@ -72,38 +94,67 @@ function ConversationItem({ conv, onPress }: { conv: Conversation; onPress: () =
 
 export default function MessagesScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const { chats, loading, error } = useUserChats(user?.uid);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity style={styles.newBtn}>
-          <Ionicons name="create-outline" size={22} color={colors.primary} />
-        </TouchableOpacity>
+        {chats.length > 0 && (
+          <View style={styles.headerBadge}>
+            <Text style={styles.headerBadgeText}>{chats.length}</Text>
+          </View>
+        )}
       </View>
 
-      {mockConversations.length === 0 ? (
-        <View style={styles.emptyState}>
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      ) : error ? (
+        <View style={styles.center}>
+          <Ionicons name="warning-outline" size={48} color={colors.error} />
+          <Text style={styles.emptyTitle}>Could not load chats</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.error }]}>{error}</Text>
+          {error.includes('index') && (
+            <Text style={styles.emptySubtitle}>
+              A Firestore composite index is missing.{'\n'}
+              Deploy firestore.indexes.json to fix this.
+            </Text>
+          )}
+        </View>
+      ) : chats.length === 0 ? (
+        <View style={styles.center}>
           <Ionicons name="chatbubbles-outline" size={64} color={colors.textTertiary} />
           <Text style={styles.emptyTitle}>No messages yet</Text>
-          <Text style={styles.emptySubtitle}>Start a conversation by tapping a listing</Text>
+          <Text style={styles.emptySubtitle}>
+            Start a conversation by tapping Message on a listing
+          </Text>
         </View>
       ) : (
         <FlatList
-          data={mockConversations}
+          data={chats}
           keyExtractor={item => item.id}
           renderItem={({ item }) => (
-            <ConversationItem
-              conv={item}
-              onPress={() => navigation.navigate('Chat', {
-                conversationId: item.id,
-                otherUserName: item.otherUser.name,
-                listingTitle: item.listing.title,
-              })}
+            <ChatItem
+              chat={item}
+              currentUid={user?.uid ?? ''}
+              onPress={() =>
+                navigation.navigate('FirebaseChat', {
+                  chatId:        item.id,
+                  otherUserId:   item.participants.find(p => p !== user?.uid) ?? '',
+                  otherUserName: item.participantNames?.[
+                    item.participants.find(p => p !== user?.uid) ?? ''
+                  ] ?? 'Unknown',
+                  listingTitle:  item.listingTitle ?? '',
+                })
+              }
             />
           )}
           contentContainerStyle={styles.list}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
+          showsVerticalScrollIndicator={false}
         />
       )}
     </View>
@@ -117,112 +168,122 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.lg,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.surface,
+    gap: spacing.sm,
   },
   headerTitle: {
+    flex: 1,
     fontSize: typography.sizes.xxl,
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
   },
-  newBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.background,
+  headerBadge: {
+    backgroundColor: colors.primary + '15',
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  headerBadgeText: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.bold,
+    color: colors.primary,
+  },
+  center: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.xl,
+  },
+  emptyTitle: {
+    fontSize: typography.sizes.xl,
+    fontWeight: typography.weights.semibold,
+    color: colors.textSecondary,
+  },
+  emptySubtitle: {
+    fontSize: typography.sizes.sm,
+    color: colors.textTertiary,
+    textAlign: 'center',
   },
   list: {
     paddingTop: spacing.sm,
   },
-  convItem: {
+  chatItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.lg,
     backgroundColor: colors.surface,
   },
-  convItemUnread: {
-    backgroundColor: '#f0f7f3',
-  },
-  avatarContainer: {
-    position: 'relative',
-    marginRight: spacing.md,
+  chatItemUnread: {
+    backgroundColor: '#f0f9f4',
   },
   avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.primary + '25',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+    flexShrink: 0,
   },
-  verifiedBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: -2,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+  avatarText: {
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.bold,
+    color: colors.primary,
   },
-  convContent: {
+  chatContent: {
     flex: 1,
+    gap: 3,
   },
-  convTopRow: {
+  chatTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 3,
   },
-  convName: {
+  chatName: {
+    flex: 1,
     fontSize: typography.sizes.md,
     fontWeight: typography.weights.medium,
     color: colors.textPrimary,
+    marginRight: spacing.sm,
   },
-  convNameUnread: {
+  chatNameUnread: {
     fontWeight: typography.weights.bold,
   },
-  convTime: {
+  chatTime: {
     fontSize: typography.sizes.xs,
     color: colors.textTertiary,
   },
-  convTimeUnread: {
+  chatTimeUnread: {
     color: colors.primary,
     fontWeight: typography.weights.semibold,
   },
-  listingPreview: {
+  listingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginBottom: 3,
   },
   listingTitle: {
-    flex: 1,
     fontSize: typography.sizes.xs,
     color: colors.textTertiary,
   },
-  listingPrice: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.semibold,
-    color: colors.primary,
-  },
-  convBottomRow: {
+  chatBottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  lastMessageRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
   },
   lastMessage: {
     flex: 1,
     fontSize: typography.sizes.sm,
     color: colors.textSecondary,
+    marginRight: spacing.sm,
   },
   lastMessageUnread: {
     fontWeight: typography.weights.semibold,
@@ -237,30 +298,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 6,
   },
-  unreadCount: {
-    fontSize: typography.sizes.xs,
+  unreadText: {
+    fontSize: 11,
     fontWeight: typography.weights.bold,
     color: '#fff',
   },
   separator: {
     height: 1,
     backgroundColor: colors.borderLight,
-    marginLeft: spacing.xl + 54 + spacing.md,
-  },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.md,
-  },
-  emptyTitle: {
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.semibold,
-    color: colors.textSecondary,
-  },
-  emptySubtitle: {
-    fontSize: typography.sizes.sm,
-    color: colors.textTertiary,
-    textAlign: 'center',
+    marginLeft: spacing.xl + 52 + spacing.md,
   },
 });

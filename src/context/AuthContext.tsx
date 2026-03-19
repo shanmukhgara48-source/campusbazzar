@@ -1,45 +1,86 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { User } from '../types';
-import { mockUsers, CURRENT_USER_ID } from '../data/mockData';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { User as FirebaseUser } from 'firebase/auth';
+import { db, auth } from '../services/firebase';
+import { subscribeToAuthState, signOut } from '../services/authService';
+import { DBUser } from '../services/authService';
 
 interface AuthContextType {
-  user: User | null;
+  user: DBUser | null;
   isAuthenticated: boolean;
-  login: (email: string) => void;
-  logout: () => void;
-  updateUser: (updates: Partial<User>) => void;
-  switchRole: (role: User['role']) => void;
+  loading: boolean;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]       = useState<DBUser | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const login = (email: string) => {
-    const foundUser = mockUsers.find(u => u.id === CURRENT_USER_ID) || mockUsers[0];
-    setUser({ ...foundUser, email });
+  const loadUserFromDB = async (firebaseUser: FirebaseUser) => {
+    const uid = firebaseUser.uid;
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      if (snap.exists()) {
+        console.log('[AuthContext] loaded user from Firestore:', uid);
+        setUser(snap.data() as DBUser);
+      } else {
+        // Doc not yet written (race condition on signup) — create minimal record
+        console.log('[AuthContext] doc missing, creating fallback for:', uid);
+        const fallback: DBUser = {
+          uid,
+          email:       firebaseUser.email ?? '',
+          name:        firebaseUser.displayName ?? '',
+          avatar:      '',
+          college:     '',
+          rollNumber:  '',
+          createdAt:   serverTimestamp(),
+        };
+        await setDoc(doc(db, 'users', uid), fallback);
+        setUser(fallback);
+      }
+    } catch (e) {
+      console.log('[AuthContext] Firestore error, using minimal user:', e);
+      // Still authenticate — do NOT block login because of a DB error
+      setUser({
+        uid,
+        email:      firebaseUser.email ?? '',
+        name:       firebaseUser.displayName ?? '',
+        avatar:     '',
+        college:    '',
+        rollNumber: '',
+        createdAt:  null,
+      });
+    }
   };
 
-  const logout = () => setUser(null);
+  useEffect(() => {
+    const unsub = subscribeToAuthState(async firebaseUser => {
+      console.log('[AuthContext] auth state changed, user:', firebaseUser?.uid ?? 'null');
+      if (firebaseUser) {
+        await loadUserFromDB(firebaseUser);
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
 
-  const updateUser = (updates: Partial<User>) => {
-    setUser(prev => prev ? { ...prev, ...updates } : null);
+  const logout = async () => {
+    await signOut();
+    setUser(null);
   };
 
-  const switchRole = (role: User['role']) => {
-    setUser(prev => prev ? { ...prev, role } : null);
+  const refreshUser = async () => {
+    const firebaseUser = auth.currentUser;
+    if (firebaseUser) await loadUserFromDB(firebaseUser);
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      isAuthenticated: !!user,
-      login,
-      logout,
-      updateUser,
-      switchRole,
-    }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, loading, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

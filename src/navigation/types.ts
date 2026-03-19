@@ -28,6 +28,7 @@ export type HomeStackParamList = {
   Ratings:     { userId: string };
   Transaction: { transactionId: string };
   Wishlist:    undefined;
+  FirebaseChat: { chatId: string; otherUserId: string; otherUserName: string; listingTitle: string };
 };
 
 export type Chat = never; // satisfy TS in TransactionScreen navigate call
@@ -35,6 +36,7 @@ export type Chat = never; // satisfy TS in TransactionScreen navigate call
 export type MessagesStackParamList = {
   ConversationList: undefined;
   Chat: { conversationId: string; otherUserName: string; listingTitle: string };
+  FirebaseChat: { chatId: string; otherUserId: string; otherUserName: string; listingTitle: string };
 };
 
 export type ProfileStackParamList = {
@@ -42,6 +44,8 @@ export type ProfileStackParamList = {
   EditProfile:    undefined;
   SellerDashboard: undefined;
   AdminPanel:     undefined;
+  SavedItems:     undefined;
+  Settings:       undefined;
   IDVerification: undefined;
   Terms:          undefined;
   ProhibitedItems: undefined;

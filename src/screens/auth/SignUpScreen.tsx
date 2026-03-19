@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography } from '../../theme';
+import { signUp } from '../../services/authService';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'SignUp'>;
@@ -219,19 +220,31 @@ export default function SignUpScreen({ navigation }: Props) {
     return Object.keys(e).length === 0;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!validate()) return;
     setIsLoading(true);
-    // Simulate account creation
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      await signUp(email.trim(), password.trim(), {
+        name:        fullName.trim(),
+        college:     selectedCollege?.name ?? '',
+        rollNumber:  rollNumber.trim(),
+      });
       Alert.alert(
         'Account Created!',
-        'Account created successfully. Please log in.',
+        'You can now log in.',
         [{ text: 'Log In', onPress: () => navigation.navigate('Login') }],
-        { cancelable: false }
+        { cancelable: false },
       );
-    }, 1000);
+    } catch (e: any) {
+      const msg =
+        e.code === 'auth/email-already-in-use' ? 'This email is already registered.' :
+        e.code === 'auth/invalid-email'        ? 'Invalid email address.' :
+        e.code === 'auth/weak-password'        ? 'Password must be at least 6 characters.' :
+        e.message ?? 'Sign up failed. Please try again.';
+      Alert.alert('Sign Up Failed', msg);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const domainMatches =
@@ -242,78 +255,6 @@ export default function SignUpScreen({ navigation }: Props) {
   const borderFor = (key: string) => ({
     borderColor: errors[key] ? colors.error : colors.border,
   });
-
-  // ── College picker modal ─────────────────────
-  const CollegePickerModal = () => (
-    <Modal
-      visible={showPicker}
-      animationType="slide"
-      transparent
-      onRequestClose={() => setShowPicker(false)}
-    >
-      <View style={s.overlay}>
-        <View style={s.sheet}>
-          <View style={s.sheetHeader}>
-            <Text style={s.sheetTitle}>Select College</Text>
-            <TouchableOpacity style={s.closeBtn} onPress={() => setShowPicker(false)}>
-              <Ionicons name="close" size={22} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={s.searchRow}>
-            <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
-            <TextInput
-              style={s.searchInput}
-              placeholder="Search by name or short code..."
-              placeholderTextColor={colors.textTertiary}
-              value={collegeSearch}
-              onChangeText={setCollegeSearch}
-              autoFocus
-            />
-            {collegeSearch.length > 0 && (
-              <TouchableOpacity onPress={() => setCollegeSearch('')}>
-                <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <FlatList
-            data={filteredColleges}
-            keyExtractor={item => item.name}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            ItemSeparatorComponent={() => <View style={s.sep} />}
-            renderItem={({ item }) => {
-              const active = selectedCollege?.name === item.name;
-              return (
-                <TouchableOpacity
-                  style={[s.collegeRow, active && s.collegeRowActive]}
-                  onPress={() => {
-                    setSelectedCollege(item);
-                    setCollegeSearch('');
-                    setShowPicker(false);
-                    clearError('college');
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <View style={[s.shortBadge, active && s.shortBadgeActive]}>
-                    <Text style={[s.shortText, active && s.shortTextActive]}>{item.short}</Text>
-                  </View>
-                  <View style={s.collegeInfo}>
-                    <Text style={[s.collegeName, active && s.collegeNameActive]}>{item.name}</Text>
-                    {!!item.domain && (
-                      <Text style={s.collegeDomain}>@{item.domain}</Text>
-                    )}
-                  </View>
-                  {active && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
-                </TouchableOpacity>
-              );
-            }}
-          />
-        </View>
-      </View>
-    </Modal>
-  );
 
   // ── Render ───────────────────────────────────
   return (
@@ -525,7 +466,74 @@ export default function SignUpScreen({ navigation }: Props) {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <CollegePickerModal />
+      <Modal
+        visible={showPicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowPicker(false)}
+      >
+        <View style={s.overlay}>
+          <View style={s.sheet}>
+            <View style={s.sheetHeader}>
+              <Text style={s.sheetTitle}>Select College</Text>
+              <TouchableOpacity style={s.closeBtn} onPress={() => setShowPicker(false)}>
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={s.searchRow}>
+              <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
+              <TextInput
+                style={s.searchInput}
+                placeholder="Search by name or short code..."
+                placeholderTextColor={colors.textTertiary}
+                value={collegeSearch}
+                onChangeText={setCollegeSearch}
+                autoFocus={showPicker}
+              />
+              {collegeSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setCollegeSearch('')}>
+                  <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <FlatList
+              data={filteredColleges}
+              keyExtractor={item => item.name}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              ItemSeparatorComponent={() => <View style={s.sep} />}
+              renderItem={({ item }) => {
+                const active = selectedCollege?.name === item.name;
+                return (
+                  <TouchableOpacity
+                    style={[s.collegeRow, active && s.collegeRowActive]}
+                    onPress={() => {
+                      setSelectedCollege(item);
+                      setCollegeSearch('');
+                      setShowPicker(false);
+                      clearError('college');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[s.shortBadge, active && s.shortBadgeActive]}>
+                      <Text style={[s.shortText, active && s.shortTextActive]}>{item.short}</Text>
+                    </View>
+                    <View style={s.collegeInfo}>
+                      <Text style={[s.collegeName, active && s.collegeNameActive]}>{item.name}</Text>
+                      {!!item.domain && (
+                        <Text style={s.collegeDomain}>@{item.domain}</Text>
+                      )}
+                    </View>
+                    {active && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </LinearGradient>
   );
 }

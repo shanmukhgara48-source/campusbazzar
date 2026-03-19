@@ -15,19 +15,18 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography } from '../../theme';
-import { useAuth } from '../../context/AuthContext';
+import { signIn } from '../../services/authService';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 };
 
 export default function LoginScreen({ navigation }: Props) {
-  const { login } = useAuth();
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [showPw, setShowPw]     = useState(false);
+  const [email, setEmail]         = useState('');
+  const [password, setPassword]   = useState('');
+  const [showPw, setShowPw]       = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [errors, setErrors]     = useState<Record<string, string>>({});
+  const [errors, setErrors]       = useState<Record<string, string>>({});
 
   const clearError = (key: string) =>
     setErrors(prev => ({ ...prev, [key]: '' }));
@@ -36,26 +35,38 @@ export default function LoginScreen({ navigation }: Props) {
     const e: Record<string, string> = {};
     if (!email.trim())
       e.email = 'Email is required.';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
       e.email = 'Enter a valid email address.';
-    else {
-      const domain = email.split('@')[1]?.toLowerCase() ?? '';
-      if (!domain.endsWith('.ac.in') && !domain.endsWith('.edu') && !domain.endsWith('.edu.in'))
-        e.email = 'Please use a college email (.ac.in or .edu).';
-    }
-    if (!password)
+    if (!password.trim())
       e.password = 'Password is required.';
+    else if (password.trim().length < 6)
+      e.password = 'Password must be at least 6 characters.';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!validate()) return;
     setIsLoading(true);
-    setTimeout(() => {
+    console.log('[LoginScreen] attempting login:', email.trim());
+    try {
+      await signIn(email, password);
+    } catch (e: any) {
+      console.log('[LoginScreen] error code:', e.code);
+      console.log('[LoginScreen] error message:', e.message);
+      const msg =
+        e.code === 'auth/invalid-credential'  ? 'Email or password is incorrect. Please sign up first if you don\'t have an account.' :
+        e.code === 'auth/user-not-found'       ? 'No account found. Please sign up first.' :
+        e.code === 'auth/wrong-password'       ? 'Incorrect password.' :
+        e.code === 'auth/invalid-email'        ? 'Invalid email address.' :
+        e.code === 'auth/user-disabled'        ? 'This account has been disabled.' :
+        e.code === 'auth/too-many-requests'    ? 'Too many attempts. Try again later.' :
+        e.code === 'auth/network-request-failed' ? 'Network error. Check your connection.' :
+        e.message ?? 'Login failed. Please try again.';
+      Alert.alert('Login Failed', msg);
+    } finally {
       setIsLoading(false);
-      login(email.trim());
-    }, 800);
+    }
   };
 
   const borderFor = (key: string) => ({

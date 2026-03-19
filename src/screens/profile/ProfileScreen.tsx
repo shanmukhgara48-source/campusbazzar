@@ -16,6 +16,7 @@ import { ProfileStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 import { useAuth } from '../../context/AuthContext';
 import { mockListings, CURRENT_USER_ID } from '../../data/mockData';
+import { useFavourites } from '../../context/FavouritesContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<ProfileStackParamList, 'ProfileMain'>;
@@ -23,24 +24,46 @@ type Props = {
 
 export default function ProfileScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { user, logout, switchRole } = useAuth();
+  const { user, loading, logout } = useAuth();
+
+  console.log('[ProfileScreen] user:', user);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={{ color: colors.textSecondary }}>Loading profile...</Text>
+      </View>
+    );
+  }
 
   if (!user) return null;
 
+  // Safe field access with fallbacks — Firestore user may not have all optional fields
+  const rating       = user.rating       ?? 0;
+  const reviewCount  = user.reviewCount  ?? 0;
+  const totalSales   = user.totalSales   ?? 0;
+  const year         = user.year         ?? '';
+  const department   = user.department   ?? '';
+  const memberSince  = user.memberSince  ?? '';
+  const responseTime = user.responseTime ?? '';
+  const isVerified   = user.isVerified   ?? false;
+  const role         = user.role         ?? 'buyer';
+
+  const { savedIds } = useFavourites();
   const myListings = mockListings.filter(l => l.sellerId === CURRENT_USER_ID);
-  const totalViews = myListings.reduce((sum, l) => sum + l.views, 0);
+  const totalViews = myListings.reduce((sum, l) => sum + (l.views ?? 0), 0);
 
   const menuItems = [
-    { icon: 'list-outline', label: 'My Listings', count: myListings.length, onPress: () => {} },
-    { icon: 'heart-outline', label: 'Saved Items', count: 3, onPress: () => {} },
-    { icon: 'star-outline', label: 'Reviews', count: user.reviewCount, onPress: () => navigation.navigate('SellerDashboard') },
-    { icon: 'bar-chart-outline', label: 'Seller Dashboard', onPress: () => navigation.navigate('SellerDashboard') },
-    { icon: 'notifications-outline', label: 'Notification Settings', onPress: () => {} },
-    { icon: 'shield-checkmark-outline', label: 'Privacy & Safety', onPress: () => {} },
-    { icon: 'help-circle-outline', label: 'Help & Support', onPress: () => {} },
+    { icon: 'list-outline',           label: 'My Listings',           count: myListings.length, onPress: () => {} },
+    { icon: 'heart-outline',          label: 'Saved Items',           count: savedIds.size,     onPress: () => navigation.navigate('SavedItems') },
+    { icon: 'star-outline',           label: 'Reviews',               count: reviewCount ?? 0,  onPress: () => navigation.navigate('SellerDashboard') },
+    { icon: 'bar-chart-outline',      label: 'Seller Dashboard',                                onPress: () => navigation.navigate('SellerDashboard') },
+    { icon: 'notifications-outline',  label: 'Notification Settings',                           onPress: () => {} },
+    { icon: 'shield-checkmark-outline',label: 'Privacy & Safety',                               onPress: () => {} },
+    { icon: 'help-circle-outline',    label: 'Help & Support',                                  onPress: () => {} },
   ];
 
-  if (user.role === 'admin') {
+  if (role === 'admin') {
     menuItems.splice(4, 0, {
       icon: 'settings-outline',
       label: 'Admin Panel',
@@ -48,25 +71,12 @@ export default function ProfileScreen({ navigation }: Props) {
     });
   }
 
-  const handleRoleSwitch = () => {
-    Alert.alert(
-      'Switch Role',
-      'Choose your role:',
-      [
-        { text: 'Buyer', onPress: () => switchRole('buyer') },
-        { text: 'Seller', onPress: () => switchRole('seller') },
-        { text: 'Admin', onPress: () => switchRole('admin') },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  };
-
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header Banner */}
         <LinearGradient colors={[colors.primaryDark, colors.primary]} style={styles.banner}>
-          <TouchableOpacity style={styles.settingsBtn}>
+          <TouchableOpacity style={styles.settingsBtn} onPress={() => navigation.navigate('Settings')}>
             <Ionicons name="settings-outline" size={22} color="rgba(255,255,255,0.9)" />
           </TouchableOpacity>
 
@@ -81,20 +91,24 @@ export default function ProfileScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
             <Text style={styles.userName}>{user.name}</Text>
-            <Text style={styles.userCollege}>{user.college} · {user.department}</Text>
+            <Text style={styles.userCollege}>
+              {[user.college, department].filter(Boolean).join(' · ')}
+            </Text>
             <View style={styles.badgeRow}>
-              <View style={styles.yearBadge}>
-                <Text style={styles.yearText}>{user.year}</Text>
-              </View>
-              {user.isVerified && (
+              {!!year && (
+                <View style={styles.yearBadge}>
+                  <Text style={styles.yearText}>{year}</Text>
+                </View>
+              )}
+              {isVerified && (
                 <View style={styles.verifiedBadge}>
                   <Ionicons name="checkmark-circle" size={13} color={colors.success} />
                   <Text style={styles.verifiedText}>Verified</Text>
                 </View>
               )}
-              <TouchableOpacity style={styles.roleBadge} onPress={handleRoleSwitch}>
-                <Text style={styles.roleText}>{user.role}</Text>
-              </TouchableOpacity>
+              <View style={styles.roleBadge}>
+                <Text style={styles.roleText}>{role}</Text>
+              </View>
             </View>
           </View>
         </LinearGradient>
@@ -102,9 +116,9 @@ export default function ProfileScreen({ navigation }: Props) {
         {/* Stats */}
         <View style={styles.statsRow}>
           {[
-            { label: 'Rating', value: user.rating.toFixed(1), icon: 'star', color: colors.gold },
-            { label: 'Reviews', value: user.reviewCount, icon: 'chatbubble', color: colors.info },
-            { label: 'Sales', value: user.totalSales, icon: 'bag-check', color: colors.success },
+            { label: 'Rating',  value: rating.toFixed(1), icon: 'star',       color: colors.gold    },
+            { label: 'Reviews', value: reviewCount,       icon: 'chatbubble', color: colors.info    },
+            { label: 'Sales',   value: totalSales,        icon: 'bag-check',  color: colors.success },
             { label: 'Views', value: totalViews, icon: 'eye', color: colors.accent },
           ].map((stat, i) => (
             <View key={i} style={styles.statCard}>
@@ -118,10 +132,10 @@ export default function ProfileScreen({ navigation }: Props) {
         {/* Member Since */}
         <View style={styles.memberRow}>
           <Ionicons name="time-outline" size={14} color={colors.textTertiary} />
-          <Text style={styles.memberText}>Member since {user.memberSince}</Text>
+          {!!memberSince && <Text style={styles.memberText}>Member since {memberSince}</Text>}
           <View style={styles.dot} />
           <Ionicons name="flash-outline" size={14} color={colors.textTertiary} />
-          <Text style={styles.memberText}>Responds {user.responseTime}</Text>
+          {!!responseTime && <Text style={styles.memberText}>Responds {responseTime}</Text>}
         </View>
 
         {/* My Active Listings */}

@@ -1,75 +1,38 @@
-import React, {
-  createContext, useContext, useEffect, useReducer, ReactNode,
-} from 'react';
-import { Listing } from '../types';
-import * as storageService from '../services/storageService';
-
-interface FavouritesState {
-  ids:      Set<string>;
-  listings: Listing[];
-}
-
-type Action =
-  | { type: 'LOAD';   ids: string[] }
-  | { type: 'ADD';    listing: Listing }
-  | { type: 'REMOVE'; listingId: string };
-
-function reducer(state: FavouritesState, action: Action): FavouritesState {
-  switch (action.type) {
-    case 'LOAD':
-      return { ...state, ids: new Set(action.ids) };
-    case 'ADD':
-      return {
-        ids:      new Set([...state.ids, action.listing.id]),
-        listings: [...state.listings.filter(l => l.id !== action.listing.id), action.listing],
-      };
-    case 'REMOVE': {
-      const ids = new Set(state.ids);
-      ids.delete(action.listingId);
-      return { ids, listings: state.listings.filter(l => l.id !== action.listingId) };
-    }
-    default:
-      return state;
-  }
-}
+import React, { createContext, useContext, ReactNode } from 'react';
+import { useAuth } from './AuthContext';
+import { useSavedItems, saveItem, unsaveItem } from '../services/savedItemsService';
 
 interface FavouritesContextValue {
-  favouriteIds: Set<string>;
-  favourites:   Listing[];
-  isFavourite:  (id: string) => boolean;
-  toggle:       (listing: Listing) => Promise<void>;
+  savedIds: Set<string>;
+  isFavourite: (id: string) => boolean;
+  toggle: (listingId: string) => Promise<void>;
+  loading: boolean;
 }
 
 const FavouritesContext = createContext<FavouritesContextValue>({
-  favouriteIds: new Set(),
-  favourites:   [],
-  isFavourite:  () => false,
-  toggle:       async () => {},
+  savedIds:    new Set(),
+  isFavourite: () => false,
+  toggle:      async () => {},
+  loading:     false,
 });
 
 export function FavouritesProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, { ids: new Set<string>(), listings: [] });
+  const { user } = useAuth();
+  const { savedIds, loading } = useSavedItems(user?.uid);
 
-  useEffect(() => {
-    storageService.getFavourites().then(ids => dispatch({ type: 'LOAD', ids }));
-  }, []);
+  const isFavourite = (id: string) => savedIds.has(id);
 
-  const isFavourite = (id: string) => state.ids.has(id);
-
-  const toggle = async (listing: Listing) => {
-    if (state.ids.has(listing.id)) {
-      dispatch({ type: 'REMOVE', listingId: listing.id });
-      await storageService.removeFavourite(listing.id);
+  const toggle = async (listingId: string) => {
+    if (!user?.uid) return;
+    if (savedIds.has(listingId)) {
+      await unsaveItem(user.uid, listingId);
     } else {
-      dispatch({ type: 'ADD', listing });
-      await storageService.addFavourite(listing.id);
+      await saveItem(user.uid, listingId);
     }
   };
 
   return (
-    <FavouritesContext.Provider
-      value={{ favouriteIds: state.ids, favourites: state.listings, isFavourite, toggle }}
-    >
+    <FavouritesContext.Provider value={{ savedIds, isFavourite, toggle, loading }}>
       {children}
     </FavouritesContext.Provider>
   );

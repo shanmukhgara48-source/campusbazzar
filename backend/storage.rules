@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Listing images — only the authenticated uploader can write their own folder
+    match /listings/{userId}/{imageId} {
+      allow read:  if true;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && request.resource.size < 10 * 1024 * 1024       // max 10 MB
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Block everything else by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

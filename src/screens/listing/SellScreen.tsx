@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,8 +12,31 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import { auth } from '../../services/firebase';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 import { ItemCategory, ItemCondition } from '../../types';
+import { mockListings } from '../../data/mockData';
+import { useWatcher } from '../../context/WatcherContext';
+import { useAuth } from '../../context/AuthContext';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+
+type PriceStatus = 'great' | 'fair' | 'high' | null;
+
+const PRICE_STATUS_CONFIG: Record<NonNullable<PriceStatus>, { label: string; color: string; icon: string }> = {
+  great: { label: '🟢 Great Price — likely to sell fast!', color: '#1a5c3a', icon: 'trending-down' },
+  fair:  { label: '🟡 Fair Price — in line with market.',  color: '#c8960c', icon: 'remove'        },
+  high:  { label: '🔴 Above Average — consider lowering.', color: '#d90429', icon: 'trending-up'   },
+};
+
+function getPriceStatus(inputPrice: number, avgPrice: number): PriceStatus {
+  if (!avgPrice || inputPrice <= 0) return null;
+  const ratio = inputPrice / avgPrice;
+  if (ratio <= 0.8)  return 'great';
+  if (ratio <= 1.15) return 'fair';
+  return 'high';
+}
 
 const CATEGORIES: ItemCategory[] = ['Books', 'Laptops', 'Calculators', 'Electronics', 'Other'];
 const CONDITIONS: ItemCondition[] = ['New', 'Like New', 'Good', 'Fair', 'Poor'];
@@ -25,7 +48,79 @@ const conditionDesc: Record<ItemCondition, string> = {
   'Poor': 'Heavy wear or minor defects',
 };
 
+// Must match storageBucket in firebaseConfig (firebase.ts)
+const STORAGE_BUCKET = 'campusbazaar-a222f.firebasestorage.app';
+
+/**
+ * Expo-compatible image upload.
+ *
+ * Upload chain that avoids every known React Native incompatibility:
+ *
+ *  ✗ uploadBytes(blob)    — Firebase SDK wraps blob in new Blob([blob])
+ *                           internally, hitting the ArrayBufferView error
+ *  ✗ uploadString(base64) — Firebase SDK decodes base64 → Uint8Array →
+ *                           new Blob([uint8array]) → same ArrayBufferView error
+ *  ✗ FileSystem.uploadAsync / BINARY_CONTENT — FileSystemUploadType is
+ *                           undefined in Expo Go (module not yet native-loaded)
+ *
+ *  ✓ fetch(localUri).blob() → fetch POST to Firebase Storage REST API
+ *    React Native's fetch reads local file:// URIs natively and sends the
+ *    blob body via the OS HTTP stack — no JS Blob constructor involved.
+ */
+async function uploadImages(uris: string[], userId: string): Promise<string[]> {
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error('User not authenticated');
+
+  return Promise.all(uris.map(async (uri, i) => {
+    console.log(`[Upload] uri[${i}]:`, uri);
+
+    // 1. Compress → fresh local file:// URI (smaller payload, consistent MIME)
+    const imgRef     = await ImageManipulator.manipulate(uri)
+      .resize({ width: 1080 })
+      .renderAsync();
+    const compressed = await imgRef.saveAsync({ compress: 0.8, format: SaveFormat.JPEG });
+    console.log(`[Upload] compressed[${i}]:`, compressed.uri);
+
+    // 2. Read local URI → Blob via React Native's native fetch
+    const localResponse = await fetch(compressed.uri);
+    const blob          = await localResponse.blob();
+    console.log(`[Upload] blob[${i}]: size=${blob.size} type=${blob.type}`);
+    if (!blob || blob.size === 0) throw new Error(`Empty blob for image ${i}`);
+
+    // 3. POST blob directly to Firebase Storage REST API
+    //    Plain fetch POST never touches the Blob constructor internally —
+    //    React Native pipes the blob body through the OS HTTP layer.
+    const path        = `listings/${userId}/${Date.now()}_${i}.jpg`;
+    const encodedPath = encodeURIComponent(path);
+    const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o` +
+                        `?uploadType=media&name=${encodedPath}`;
+
+    const uploadRes = await fetch(uploadUrl, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'image/jpeg',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: blob,
+    });
+
+    const body = await uploadRes.text();
+    console.log(`[Upload] response[${i}]: status=${uploadRes.status}`, body.slice(0, 300));
+    if (!uploadRes.ok) throw new Error(`Upload failed (${uploadRes.status}): ${body}`);
+
+    // 4. Build permanent download URL from the token in the REST response
+    const { downloadTokens } = JSON.parse(body) as { downloadTokens: string };
+    const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o` +
+                        `/${encodedPath}?alt=media&token=${downloadTokens}`;
+
+    console.log(`[Upload] url[${i}]:`, downloadUrl);
+    return downloadUrl;
+  }));
+}
+
 export default function SellScreen() {
+  const { checkListing } = useWatcher();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -36,9 +131,22 @@ export default function SellScreen() {
   const [images, setImages] = useState<string[]>([]);
   const [isPosting, setIsPosting] = useState(false);
 
+  const avgPrice = useMemo(() => {
+    const filtered = category
+      ? mockListings.filter(l => l.category === category && l.price > 0)
+      : mockListings.filter(l => l.price > 0);
+    if (!filtered.length) return 0;
+    return filtered.reduce((sum, l) => sum + l.price, 0) / filtered.length;
+  }, [category]);
+
+  const priceStatus = useMemo(
+    () => getPriceStatus(Number(price), avgPrice),
+    [price, avgPrice],
+  );
+
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsMultipleSelection: true,
       quality: 0.8,
     });
@@ -52,25 +160,48 @@ export default function SellScreen() {
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handlePost = () => {
+  const handlePost = async () => {
     if (!title.trim()) { Alert.alert('Missing Info', 'Please add a title.'); return; }
     if (!price.trim()) { Alert.alert('Missing Info', 'Please set a price.'); return; }
-    if (!category) { Alert.alert('Missing Info', 'Please select a category.'); return; }
-    if (!condition) { Alert.alert('Missing Info', 'Please select the condition.'); return; }
+    if (!category)    { Alert.alert('Missing Info', 'Please select a category.'); return; }
+    if (!condition)   { Alert.alert('Missing Info', 'Please select the condition.'); return; }
+    if (!user)        { Alert.alert('Not logged in', 'Please log in to post a listing.'); return; }
 
     setIsPosting(true);
-    setTimeout(() => {
+    try {
+      let uploadedImages: string[] = [];
+      if (images.length > 0) {
+        uploadedImages = await uploadImages(images, user.uid);
+      }
+
+      await addDoc(collection(db, 'listings'), {
+        title:         title.trim(),
+        description:   description.trim(),
+        price:         Number(price),
+        originalPrice: originalPrice ? Number(originalPrice) : null,
+        category,
+        condition,
+        images:        uploadedImages,
+        sellerId:      user.uid,
+        sellerName:    user.name || user.email || '',
+        status:        'active',
+        views:         0,
+        createdAt:     serverTimestamp(),
+      });
+      checkListing(title.trim());
+      Alert.alert('Success!', 'Your listing has been posted.', [{
+        text: 'OK', onPress: () => {
+          setTitle(''); setDescription(''); setPrice('');
+          setOriginalPrice(''); setCategory(null);
+          setCondition(null); setImages([]);
+        },
+      }]);
+    } catch (e: any) {
+      console.error('[SellScreen] handlePost failed:', e);
+      Alert.alert('Error', e?.message || 'Failed to post listing. Please try again.');
+    } finally {
       setIsPosting(false);
-      Alert.alert('Success!', 'Your listing has been posted.', [
-        {
-          text: 'OK', onPress: () => {
-            setTitle(''); setDescription(''); setPrice('');
-            setOriginalPrice(''); setCategory(null);
-            setCondition(null); setImages([]);
-          }
-        }
-      ]);
-    }, 1200);
+    }
   };
 
   return (
@@ -190,6 +321,18 @@ export default function SellScreen() {
             </View>
           </View>
           <Text style={styles.sectionHint}>Original price helps buyers see the discount</Text>
+          {priceStatus && (
+            <View style={[styles.priceIndicator, { borderColor: PRICE_STATUS_CONFIG[priceStatus].color }]}>
+              <Text style={[styles.priceIndicatorText, { color: PRICE_STATUS_CONFIG[priceStatus].color }]}>
+                {PRICE_STATUS_CONFIG[priceStatus].label}
+              </Text>
+              {avgPrice > 0 && (
+                <Text style={styles.priceAvgText}>
+                  Avg for {category ?? 'all categories'}: ₹{Math.round(avgPrice).toLocaleString('en-IN')}
+                </Text>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Description */}
@@ -461,5 +604,22 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.lg,
     fontWeight: typography.weights.bold,
     color: '#fff',
+  },
+  priceIndicator: {
+    marginTop: spacing.sm,
+    borderWidth: 1.5,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  priceIndicatorText: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.semibold,
+  },
+  priceAvgText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textTertiary,
+    marginTop: 2,
   },
 });

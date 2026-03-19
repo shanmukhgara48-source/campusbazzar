@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,8 +35,17 @@ export default function ChatScreen({ navigation, route }: Props) {
   const flatListRef = useRef<FlatList>(null);
   const conv = mockConversations.find(c => c.id === conversationId);
 
-  const sendMessage = () => {
-    if (!text.trim()) return;
+  const SCAM_PATTERNS = [
+    /\b\d{10}\b/,
+    /\botp\b/i,
+    /advance/i,
+    /payment\s*first/i,
+    /urgent/i,
+  ];
+
+  const isUnsafe = (msg: string) => SCAM_PATTERNS.some(p => p.test(msg));
+
+  const doSend = () => {
     const newMsg: Message = {
       id: `msg_new_${Date.now()}`,
       conversationId,
@@ -48,6 +58,22 @@ export default function ChatScreen({ navigation, route }: Props) {
     setMessages(prev => [...prev, newMsg]);
     setText('');
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+  };
+
+  const sendMessage = () => {
+    if (!text.trim()) return;
+    if (isUnsafe(text)) {
+      Alert.alert(
+        '⚠️ Unsafe Message Detected',
+        'This message may be unsafe. Avoid sharing phone numbers, OTPs, or making advance payments.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Send Anyway', style: 'destructive', onPress: doSend },
+        ],
+      );
+      return;
+    }
+    doSend();
   };
 
   const formatTime = (timestamp: string) => {
