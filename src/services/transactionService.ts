@@ -1,11 +1,9 @@
-import {
-  collection, doc, addDoc, updateDoc, onSnapshot,
-  query, where, orderBy, serverTimestamp, Unsubscribe,
-} from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { db } from './firebase';
-
-// Firestore path: transactions/{transactionId}
+/**
+ * Transaction service — Cloudflare Worker API (replaces Firestore).
+ * Hook interface preserved so TransactionScreen/MeetupScreen need no changes.
+ */
+import { useEffect, useState, useCallback } from 'react';
+import { transactionsApi, ApiTransaction } from './api';
 
 export type TxStatus =
   | 'pending'
@@ -15,44 +13,24 @@ export type TxStatus =
   | 'cancelled'
   | 'disputed';
 
-export interface FSTransaction {
-  id: string;
-  // Listing info (denormalized — avoids extra fetch in TransactionScreen)
+export type { ApiTransaction as FSTransaction };
+
+/** Payload encoded inside the delivery QR code */
+export interface QRPayload {
+  v: 1;
+  txId: string;
   listingId: string;
-  listingTitle: string;
-  listingImage: string;
-  listingPrice: number;
-  // Participants
   buyerId: string;
-  buyerName: string;
   sellerId: string;
-  sellerName: string;
-  // Deal
-  amount: number;
-  meetupLocation?: string;
-  meetupTime?: string;
-  paymentMethod?: string;
-  // Status
-  status: TxStatus;
-  buyerConfirmed: boolean;
-  sellerConfirmed: boolean;
-  createdAt: unknown;
 }
 
-export type CreateTransactionData = Omit<
-  FSTransaction,
-  'id' | 'status' | 'createdAt' | 'buyerConfirmed' | 'sellerConfirmed'
+export type CreateTransactionData = Omit<ApiTransaction,
+  'id' | 'status' | 'createdAt' | 'buyerConfirmed' | 'sellerConfirmed' | 'isDelivered' | 'deliveredAt'
 >;
 
 export async function createTransaction(data: CreateTransactionData): Promise<string> {
-  const ref = await addDoc(collection(db, 'transactions'), {
-    ...data,
-    status:          'pending',
-    buyerConfirmed:  false,
-    sellerConfirmed: false,
-    createdAt:       serverTimestamp(),
-  });
-  return ref.id;
+  const { transactionId } = await transactionsApi.create(data as any);
+  return transactionId;
 }
 
 export async function updateTransactionStatus(
@@ -60,74 +38,97 @@ export async function updateTransactionStatus(
   status: TxStatus,
   extra?: Record<string, unknown>,
 ): Promise<void> {
-  await updateDoc(doc(db, 'transactions', id), { status, ...(extra ?? {}) });
+  await transactionsApi.update(id, { status, ...extra } as any);
 }
 
 export async function confirmHandoff(id: string, role: 'buyer' | 'seller'): Promise<void> {
   const field = role === 'buyer' ? 'buyerConfirmed' : 'sellerConfirmed';
-  await updateDoc(doc(db, 'transactions', id), { [field]: true });
+  await transactionsApi.update(id, { [field]: true } as any);
 }
 
-// ─── Real-time hooks ──────────────────────────────────────────────────────────
+/**
+ * Verify QR code at meetup — marks transaction completed if valid.
+ */
+export async function verifyQRCode(
+  scannedData: string,
+): Promise<{ ok: boolean; txId?: string; error?: string }> {
+  let payload: QRPayload;
+  try {
+    payload = JSON.parse(scannedData) as QRPayload;
+  } catch {
+    return { ok: false, error: 'Invalid QR code format' };
+  }
+  if (payload.v !== 1 || !payload.txId) return { ok: false, error: 'Unrecognised QR code' };
 
-/** Single transaction — real-time */
+  try {
+    await transactionsApi.verifyQR(payload.txId, scannedData);
+    return { ok: true, txId: payload.txId };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Verification failed' };
+  }
+}
+
+/**
+ * OTP fallback — seller enters buyer's 4-digit OTP manually.
+ */
+export async function verifyDeliveryOtp(id: string, enteredOtp: string): Promise<boolean> {
+  const { matched } = await transactionsApi.verifyOTP(id, enteredOtp);
+  return matched;
+}
+
+// ─── Real-time hooks (polling replaces onSnapshot) ────────────────────────────
+
 export function useTransaction(transactionId: string | undefined) {
-  const [transaction, setTransaction] = useState<FSTransaction | null>(null);
+  const [transaction, setTransaction] = useState<ApiTransaction | null>(null);
   const [loading, setLoading]         = useState(true);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!transactionId) { setLoading(false); return; }
-    const unsub: Unsubscribe = onSnapshot(
-      doc(db, 'transactions', transactionId),
-      snap => {
-        setTransaction(snap.exists() ? ({ id: snap.id, ...snap.data() } as FSTransaction) : null);
-        setLoading(false);
-      },
-      () => setLoading(false),
-    );
-    return unsub;
+    try {
+      const { transaction: tx } = await transactionsApi.get(transactionId);
+      setTransaction(tx);
+    } catch {
+      setTransaction(null);
+    } finally {
+      setLoading(false);
+    }
   }, [transactionId]);
+
+  useEffect(() => {
+    load();
+    // Poll every 5s so status updates (e.g. seller confirming) reflect quickly
+    const timer = setInterval(load, 5_000);
+    return () => clearInterval(timer);
+  }, [load]);
 
   return { transaction, loading };
 }
 
 export function useBuyerTransactions(buyerId: string) {
-  const [transactions, setTransactions] = useState<FSTransaction[]>([]);
+  const [transactions, setTransactions] = useState<ApiTransaction[]>([]);
   const [loading, setLoading]           = useState(true);
 
   useEffect(() => {
     if (!buyerId) return;
-    const q = query(
-      collection(db, 'transactions'),
-      where('buyerId', '==', buyerId),
-      orderBy('createdAt', 'desc'),
-    );
-    const unsub: Unsubscribe = onSnapshot(q, snap => {
-      setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() } as FSTransaction)));
-      setLoading(false);
-    });
-    return unsub;
+    transactionsApi.byBuyer(buyerId)
+      .then(({ transactions: data }) => setTransactions(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [buyerId]);
 
   return { transactions, loading };
 }
 
 export function useSellerTransactions(sellerId: string) {
-  const [transactions, setTransactions] = useState<FSTransaction[]>([]);
+  const [transactions, setTransactions] = useState<ApiTransaction[]>([]);
   const [loading, setLoading]           = useState(true);
 
   useEffect(() => {
     if (!sellerId) return;
-    const q = query(
-      collection(db, 'transactions'),
-      where('sellerId', '==', sellerId),
-      orderBy('createdAt', 'desc'),
-    );
-    const unsub: Unsubscribe = onSnapshot(q, snap => {
-      setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() } as FSTransaction)));
-      setLoading(false);
-    });
-    return unsub;
+    transactionsApi.bySeller(sellerId)
+      .then(({ transactions: data }) => setTransactions(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [sellerId]);
 
   return { transactions, loading };

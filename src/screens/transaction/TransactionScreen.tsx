@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Image, ActivityIndicator,
+  Alert, Image, ActivityIndicator, TextInput,
 } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { HomeStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
-import { useTransaction, updateTransactionStatus, confirmHandoff, TxStatus } from '../../services/transactionService';
+import { useTransaction, updateTransactionStatus, verifyDeliveryOtp, TxStatus } from '../../services/transactionService';
 import { getOrCreateChat } from '../../services/chatService';
 import { useAuth } from '../../context/AuthContext';
 import TransactionStatusBadge from '../../components/TransactionStatusBadge';
@@ -22,12 +23,12 @@ type Props = {
 const STATUS_FLOW: TxStatus[] = ['pending', 'accepted', 'meetup_set', 'completed'];
 
 const STATUS_LABELS: Record<TxStatus, string> = {
-  pending:   'Purchase Requested',
-  accepted:  'Seller Accepted',
-  meetup_set:'Meetup Confirmed',
-  completed: 'Handoff Complete',
-  cancelled: 'Cancelled',
-  disputed:  'Under Review',
+  pending:    'Purchase Requested',
+  accepted:   'Seller Accepted',
+  meetup_set: 'Meetup Confirmed',
+  completed:  'Handoff Complete',
+  cancelled:  'Cancelled',
+  disputed:   'Under Review',
 };
 
 export default function TransactionScreen({ navigation, route }: Props) {
@@ -35,6 +36,10 @@ export default function TransactionScreen({ navigation, route }: Props) {
   const { transactionId } = route.params;
   const { user } = useAuth();
   const { transaction, loading } = useTransaction(transactionId);
+
+  const [otpInput, setOtpInput]     = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [showOtpFallback, setShowOtpFallback] = useState(false);
 
   if (loading) {
     return (
@@ -56,7 +61,7 @@ export default function TransactionScreen({ navigation, route }: Props) {
     );
   }
 
-  const iAmBuyer   = user?.uid === transaction.buyerId;
+  const iAmBuyer    = user?.uid === transaction.buyerId;
   const currentStep = STATUS_FLOW.indexOf(transaction.status);
 
   const handleMessage = async () => {
@@ -65,10 +70,6 @@ export default function TransactionScreen({ navigation, route }: Props) {
       Alert.alert('Error', 'Transaction data is incomplete.');
       return;
     }
-    console.log('[TransactionScreen] Message pressed', {
-      buyerId:  transaction.buyerId,
-      sellerId: transaction.sellerId,
-    });
     try {
       const names: Record<string, string> = {
         [transaction.buyerId]:  transaction.buyerName  || 'Buyer',
@@ -87,40 +88,8 @@ export default function TransactionScreen({ navigation, route }: Props) {
         listingTitle:  transaction.listingTitle,
       });
     } catch (e: any) {
-      console.error('[TransactionScreen] chat error:', e?.code, e?.message, e);
       Alert.alert('Could Not Open Chat', e?.message ?? 'Please try again.');
     }
-  };
-
-  const handleConfirm = () => {
-    Alert.alert(
-      'Confirm Handoff',
-      'Confirm that you have received / handed over the item?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Yes, Confirm',
-          onPress: async () => {
-            try {
-              const role = iAmBuyer ? 'buyer' : 'seller';
-              await confirmHandoff(transaction.id, role);
-              // Check if the other side has already confirmed
-              const otherConfirmed = iAmBuyer
-                ? transaction.sellerConfirmed
-                : transaction.buyerConfirmed;
-              if (otherConfirmed) {
-                await updateTransactionStatus(transaction.id, 'completed');
-                Alert.alert('Transaction Complete!', 'Please leave a review for your experience.');
-              } else {
-                Alert.alert('Confirmed!', 'Waiting for the other party to confirm.');
-              }
-            } catch {
-              Alert.alert('Error', 'Could not confirm. Please try again.');
-            }
-          },
-        },
-      ],
-    );
   };
 
   const handleCancel = () => {
@@ -169,6 +138,16 @@ export default function TransactionScreen({ navigation, route }: Props) {
           <TransactionStatusBadge status={transaction.status as any} />
         </View>
       </View>
+
+      {/* Fee paid badge */}
+      {transaction.convenienceFeePaid && (
+        <View style={styles.feePaidBadge}>
+          <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+          <Text style={styles.feePaidText}>
+            Convenience fee ₹{transaction.convenienceFee?.toLocaleString('en-IN')} paid via Razorpay
+          </Text>
+        </View>
+      )}
 
       {/* Participants */}
       <View style={styles.card}>
@@ -258,33 +237,125 @@ export default function TransactionScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {/* Confirm Handoff */}
-      {transaction.status === 'meetup_set' && (
+      {/* ── BUYER: Show QR code ────────────────────────────────────────────── */}
+      {iAmBuyer &&
+        transaction.convenienceFeePaid &&
+        !!transaction.qrCodeData &&
+        transaction.status !== 'completed' &&
+        transaction.status !== 'cancelled' && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Confirm Handoff</Text>
-          <View style={styles.confirmRow}>
-            <View style={styles.confirmItem}>
-              <Ionicons
-                name={transaction.buyerConfirmed ? 'checkmark-circle' : 'ellipse-outline'}
-                size={22}
-                color={transaction.buyerConfirmed ? colors.success : colors.textTertiary}
+          <Text style={styles.cardTitle}>Your Delivery QR Code</Text>
+          <Text style={styles.otpHint}>
+            Show this QR code to the seller when they hand over the item. Do not share it in advance.
+          </Text>
+          <View style={styles.qrWrapper}>
+            <View style={styles.qrBox}>
+              <QRCode
+                value={transaction.qrCodeData}
+                size={200}
+                backgroundColor="#ffffff"
+                color={colors.textPrimary}
               />
-              <Text style={styles.confirmLabel}>Buyer</Text>
             </View>
-            <View style={styles.confirmDivider} />
-            <View style={styles.confirmItem}>
-              <Ionicons
-                name={transaction.sellerConfirmed ? 'checkmark-circle' : 'ellipse-outline'}
-                size={22}
-                color={transaction.sellerConfirmed ? colors.success : colors.textTertiary}
-              />
-              <Text style={styles.confirmLabel}>Seller</Text>
+            <View style={styles.qrProtectRow}>
+              <Ionicons name="shield-checkmark" size={13} color={colors.success} />
+              <Text style={styles.qrProtectText}>
+                Protected by CampusBazaar · Single-use · Verified at meetup
+              </Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm} activeOpacity={0.85}>
-            <Ionicons name="checkmark-done-outline" size={18} color="#fff" />
-            <Text style={styles.confirmBtnText}>I've completed the handoff</Text>
+
+          {/* OTP backup */}
+          {!!transaction.deliveryOtp && (
+            <View style={styles.otpBackup}>
+              <Text style={styles.otpBackupLabel}>Backup OTP (if seller can't scan)</Text>
+              <View style={styles.otpDisplay}>
+                {transaction.deliveryOtp.split('').map((digit, i) => (
+                  <View key={i} style={styles.otpDigitBox}>
+                    <Text style={styles.otpDigit}>{digit}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* ── SELLER: Scan QR or enter OTP ──────────────────────────────────── */}
+      {!iAmBuyer &&
+        transaction.status !== 'completed' &&
+        transaction.status !== 'cancelled' && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Confirm Delivery</Text>
+          <Text style={styles.otpHint}>
+            Ask the buyer to show their QR code, then scan it to complete the handoff.
+          </Text>
+
+          {/* Primary: Scan QR */}
+          <TouchableOpacity
+            style={styles.scanBtn}
+            onPress={() => navigation.navigate('QRScanner', { transactionId: transaction.id })}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="qr-code-outline" size={22} color="#fff" />
+            <Text style={styles.scanBtnText}>Scan Buyer's QR Code</Text>
           </TouchableOpacity>
+
+          {/* Fallback: OTP */}
+          <TouchableOpacity
+            style={styles.fallbackToggle}
+            onPress={() => setShowOtpFallback(v => !v)}
+          >
+            <Ionicons
+              name={showOtpFallback ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={colors.textTertiary}
+            />
+            <Text style={styles.fallbackToggleText}>
+              {showOtpFallback ? 'Hide OTP fallback' : 'Camera not available? Use OTP instead'}
+            </Text>
+          </TouchableOpacity>
+
+          {showOtpFallback && (
+            <>
+              <TextInput
+                style={styles.otpInput}
+                value={otpInput}
+                onChangeText={v => setOtpInput(v.replace(/\D/g, '').slice(0, 4))}
+                keyboardType="number-pad"
+                maxLength={4}
+                placeholder="Enter 4-digit OTP"
+                placeholderTextColor={colors.textTertiary}
+              />
+              <TouchableOpacity
+                style={[styles.confirmBtn, (otpInput.length < 4 || otpLoading) && { opacity: 0.5 }]}
+                disabled={otpInput.length < 4 || otpLoading}
+                onPress={async () => {
+                  setOtpLoading(true);
+                  try {
+                    const ok = await verifyDeliveryOtp(transaction.id, otpInput);
+                    if (ok) {
+                      Alert.alert('Delivery Confirmed!', 'Transaction marked as complete. Please leave a review.');
+                    } else {
+                      Alert.alert('Wrong OTP', 'The code does not match. Please ask the buyer again.');
+                    }
+                  } catch {
+                    Alert.alert('Error', 'Could not verify OTP. Please try again.');
+                  } finally {
+                    setOtpLoading(false);
+                    setOtpInput('');
+                  }
+                }}
+                activeOpacity={0.85}
+              >
+                {otpLoading
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <><Ionicons name="checkmark-done-outline" size={18} color="#fff" />
+                     <Text style={styles.confirmBtnText}>Verify OTP &amp; Confirm</Text></>
+                }
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       )}
 
@@ -329,6 +400,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   headerTitle:  { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.textPrimary },
+
+  // Item card
   itemCard: {
     flexDirection: 'row', backgroundColor: '#fff',
     margin: spacing.xl, borderRadius: borderRadius.xl,
@@ -338,42 +411,98 @@ const styles = StyleSheet.create({
   itemInfo:    { flex: 1, padding: spacing.md, gap: spacing.xs },
   itemTitle:   { fontSize: typography.sizes.md, fontWeight: typography.weights.semibold, color: colors.textPrimary },
   finalPrice:  { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.primary },
+
+  // Fee paid badge
+  feePaidBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.success + '12', borderRadius: borderRadius.md,
+    marginHorizontal: spacing.xl, marginBottom: spacing.md,
+    padding: spacing.md, borderWidth: 1, borderColor: colors.success + '30',
+  },
+  feePaidText: { fontSize: typography.sizes.sm, color: colors.success, fontWeight: typography.weights.medium },
+
+  // Generic card
   card: {
     backgroundColor: '#fff', marginHorizontal: spacing.xl, marginBottom: spacing.md,
     borderRadius: borderRadius.xl, padding: spacing.xl, ...shadows.small,
   },
   cardTitle: { fontSize: typography.sizes.md, fontWeight: typography.weights.bold, color: colors.textPrimary, marginBottom: spacing.lg },
-  participantRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  participantItem:{ flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+
+  // Participants
+  participantRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  participantItem:   { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   participantAvatar: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: colors.primary + '25', alignItems: 'center', justifyContent: 'center',
   },
-  participantInitials:{ fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.primary },
-  participantRole:    { fontSize: typography.sizes.xs, color: colors.textTertiary },
-  participantName:    { fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold, color: colors.textPrimary },
-  stepRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, minHeight: 40 },
-  stepLeft:  { alignItems: 'center', width: 24 },
-  stepDot:   { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.border },
-  stepDotDone:    { backgroundColor: colors.primary, borderColor: colors.primary },
-  stepDotCurrent: { backgroundColor: '#fff', borderColor: colors.primary },
-  stepDotInner:   { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
-  stepLine:       { width: 2, flex: 1, backgroundColor: colors.border, marginVertical: 2 },
-  stepLineDone:   { backgroundColor: colors.primary },
-  stepLabel:      { fontSize: typography.sizes.md, color: colors.textTertiary, paddingTop: 2, marginBottom: spacing.lg },
+  participantInitials: { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.primary },
+  participantRole:     { fontSize: typography.sizes.xs, color: colors.textTertiary },
+  participantName:     { fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold, color: colors.textPrimary },
+
+  // Stepper
+  stepRow:         { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, minHeight: 40 },
+  stepLeft:        { alignItems: 'center', width: 24 },
+  stepDot:         { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.border },
+  stepDotDone:     { backgroundColor: colors.primary, borderColor: colors.primary },
+  stepDotCurrent:  { backgroundColor: '#fff', borderColor: colors.primary },
+  stepDotInner:    { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
+  stepLine:        { width: 2, flex: 1, backgroundColor: colors.border, marginVertical: 2 },
+  stepLineDone:    { backgroundColor: colors.primary },
+  stepLabel:       { fontSize: typography.sizes.md, color: colors.textTertiary, paddingTop: 2, marginBottom: spacing.lg },
   stepLabelCurrent:{ color: colors.primary, fontWeight: typography.weights.semibold },
   stepLabelDone:   { color: colors.textSecondary },
+
+  // Meetup details
   detailRow:  { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.md },
   detailText: { fontSize: typography.sizes.md, color: colors.textPrimary, fontWeight: typography.weights.medium },
-  confirmRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxl, marginBottom: spacing.xl },
-  confirmItem:   { alignItems: 'center', gap: spacing.xs },
-  confirmLabel:  { fontSize: typography.sizes.sm, color: colors.textSecondary, fontWeight: typography.weights.medium },
-  confirmDivider:{ width: 40, height: 1, backgroundColor: colors.border },
+
+  // QR code
+  qrWrapper: { alignItems: 'center', paddingVertical: spacing.md },
+  qrBox: {
+    padding: spacing.lg, backgroundColor: '#fff',
+    borderRadius: borderRadius.lg, borderWidth: 1, borderColor: colors.border,
+    ...shadows.small,
+  },
+  qrProtectRow:  { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.md },
+  qrProtectText: { fontSize: 11, color: colors.success, flex: 1, textAlign: 'center' },
+
+  // OTP backup
+  otpBackup:     { marginTop: spacing.lg, alignItems: 'center' },
+  otpBackupLabel:{ fontSize: typography.sizes.xs, color: colors.textTertiary, marginBottom: spacing.sm },
+  otpDisplay:    { flexDirection: 'row', justifyContent: 'center', gap: spacing.md },
+  otpDigitBox:   { width: 48, height: 56, borderRadius: borderRadius.md, backgroundColor: colors.primary + '10', borderWidth: 1.5, borderColor: colors.primary + '40', alignItems: 'center', justifyContent: 'center' },
+  otpDigit:      { fontSize: 28, fontWeight: typography.weights.extrabold, color: colors.primary },
+
+  // Seller scan
+  scanBtn: {
+    backgroundColor: colors.primary, borderRadius: borderRadius.md, height: 52,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm, ...shadows.small,
+  },
+  scanBtnText: { fontSize: typography.sizes.md, fontWeight: typography.weights.bold, color: '#fff' },
+
+  fallbackToggle: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.xs, marginTop: spacing.md, paddingVertical: spacing.sm,
+  },
+  fallbackToggleText: { fontSize: typography.sizes.xs, color: colors.textTertiary },
+
+  // OTP fallback input
+  otpHint:   { fontSize: typography.sizes.sm, color: colors.textSecondary, marginBottom: spacing.md },
+  otpInput:  {
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    fontSize: 24, fontWeight: typography.weights.bold, color: colors.textPrimary,
+    textAlign: 'center', letterSpacing: 8, marginBottom: spacing.md, backgroundColor: colors.surface,
+    marginTop: spacing.sm,
+  },
   confirmBtn: {
     backgroundColor: colors.primary, borderRadius: borderRadius.md, height: 50,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
   },
   confirmBtnText: { color: '#fff', fontSize: typography.sizes.md, fontWeight: typography.weights.semibold },
+
+  // Actions
   actionsRow: {
     flexDirection: 'row', gap: spacing.md,
     marginHorizontal: spacing.xl, marginBottom: spacing.md,
@@ -384,11 +513,13 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md, paddingVertical: spacing.md,
   },
   messageBtnText: { color: colors.primary, fontSize: typography.sizes.md, fontWeight: typography.weights.semibold },
-  cancelBtn:  {
+  cancelBtn: {
     borderWidth: 1.5, borderColor: colors.error,
     borderRadius: borderRadius.md, paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
   },
   cancelBtnText: { color: colors.error, fontSize: typography.sizes.md, fontWeight: typography.weights.semibold },
+
+  // Review
   reviewBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: spacing.sm, marginHorizontal: spacing.xl,

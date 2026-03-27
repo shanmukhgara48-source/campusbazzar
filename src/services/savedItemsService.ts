@@ -1,39 +1,40 @@
-import {
-  doc, setDoc, deleteDoc, collection,
-  onSnapshot, serverTimestamp, Unsubscribe,
-} from 'firebase/firestore';
+/**
+ * Saved items service — uses favourites API (replaces Firestore subcollections).
+ */
 import { useEffect, useState } from 'react';
-import { db } from './firebase';
+import { getToken } from './api';
+import { ApiListing } from './api';
 
-// Firestore path: users/{userId}/savedItems/{listingId}
+const BASE = process.env.EXPO_PUBLIC_UPLOAD_WORKER_URL ?? '';
+
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = await getToken();
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+  return res.json() as Promise<T>;
+}
 
 export async function saveItem(userId: string, listingId: string): Promise<void> {
-  await setDoc(doc(db, 'users', userId, 'savedItems', listingId), {
-    listingId,
-    savedAt: serverTimestamp(),
-  });
+  await apiFetch(`/favourites`, { method: 'POST', body: JSON.stringify({ listingId }) });
 }
 
 export async function unsaveItem(userId: string, listingId: string): Promise<void> {
-  await deleteDoc(doc(db, 'users', userId, 'savedItems', listingId));
+  await apiFetch(`/favourites/${listingId}`, { method: 'DELETE' });
 }
 
 export function useSavedItems(userId: string | undefined) {
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  const [savedItems, setSavedItems] = useState<string[]>([]);
+  const [loading, setLoading]       = useState(true);
 
   useEffect(() => {
     if (!userId) { setLoading(false); return; }
-    const unsub: Unsubscribe = onSnapshot(
-      collection(db, 'users', userId, 'savedItems'),
-      snap => {
-        setSavedIds(new Set(snap.docs.map(d => d.id)));
-        setLoading(false);
-      },
-      () => { setLoading(false); },
-    );
-    return unsub;
+    apiFetch<{ favourites: { listingId: string }[] }>(`/favourites/user/${userId}`)
+      .then(({ favourites }) => setSavedItems(favourites.map(f => f.listingId)))
+      .catch(() => setSavedItems([]))
+      .finally(() => setLoading(false));
   }, [userId]);
 
-  return { savedIds, loading };
+  return { savedItems, loading };
 }

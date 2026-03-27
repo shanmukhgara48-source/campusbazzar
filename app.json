@@ -16,17 +16,58 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.campusbazaar.app"
+      "bundleIdentifier": "com.campusbazaar.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "CampusBazaar needs camera access to scan QR codes at meetup.",
+        "NSPhotoLibraryUsageDescription": "CampusBazaar needs photo library access to upload listing images.",
+        "NSPhotoLibraryAddUsageDescription": "CampusBazaar needs access to save images to your photo library."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a5c3a"
       },
-      "package": "com.campusbazaar.app"
+      "package": "com.campusbazaar.app",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
     },
     "plugins": [
-      "expo-font"
-    ]
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/adaptive-icon.png",
+          "color": "#1a5c3a",
+          "androidMode": "default"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "CampusBazaar needs camera access to scan QR codes at meetup.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CampusBazaar needs photo library access to upload listing images.",
+          "cameraPermission": "CampusBazaar needs camera access to take photos for listings."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "YOUR_EXPO_PROJECT_UUID_HERE"
+      }
+    }
   }
 }

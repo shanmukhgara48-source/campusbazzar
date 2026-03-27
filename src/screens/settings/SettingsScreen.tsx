@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, Alert, Switch,
+  TouchableOpacity, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,70 +29,63 @@ export default function SettingsScreen({ navigation }: Props) {
     );
   };
 
-  const sections = [
+  const navSections = [
     {
       title: 'Account',
       items: [
-        { icon: 'person-outline',        label: 'Edit Profile',        onPress: () => navigation.navigate('EditProfile') },
-        { icon: 'shield-checkmark-outline', label: 'ID Verification',  onPress: () => navigation.navigate('IDVerification') },
-      ],
-    },
-    {
-      title: 'App',
-      items: [
-        { icon: 'notifications-outline', label: 'Notifications',       onPress: () => {} },
-        { icon: 'lock-closed-outline',   label: 'Privacy & Safety',    onPress: () => {} },
+        { icon: 'person-outline',           label: 'Edit Profile',    onPress: () => navigation.navigate('EditProfile') },
+        { icon: 'shield-checkmark-outline', label: 'ID Verification', onPress: () => navigation.navigate('IDVerification') },
       ],
     },
     {
       title: 'Legal',
       items: [
-        { icon: 'document-text-outline', label: 'Terms & Conditions',  onPress: () => navigation.navigate('Terms') },
-        { icon: 'ban-outline',           label: 'Prohibited Items',    onPress: () => navigation.navigate('ProhibitedItems') },
+        { icon: 'document-text-outline', label: 'Terms & Conditions', onPress: () => navigation.navigate('Terms') },
+        { icon: 'ban-outline',           label: 'Prohibited Items',   onPress: () => navigation.navigate('ProhibitedItems') },
       ],
     },
   ];
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
+    <View style={[s.container, { paddingTop: insets.top }]}>
+      <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={s.headerTitle}>Settings</Text>
         <View style={{ width: 22 }} />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.content}>
         {user && (
-          <View style={styles.userRow}>
-            <View style={styles.userAvatar}>
-              <Text style={styles.userInitial}>
+          <View style={s.userRow}>
+            <View style={s.userAvatar}>
+              <Text style={s.userInitial}>
                 {(user.name || user.email || 'U').charAt(0).toUpperCase()}
               </Text>
             </View>
             <View>
-              <Text style={styles.userName}>{user.name || 'User'}</Text>
-              <Text style={styles.userEmail}>{user.email}</Text>
+              <Text style={s.userName}>{user.name || 'User'}</Text>
+              <Text style={s.userEmail}>{user.email}</Text>
             </View>
           </View>
         )}
 
-        {sections.map(section => (
-          <View key={section.title} style={styles.section}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-            <View style={styles.sectionCard}>
+        {navSections.map(section => (
+          <View key={section.title} style={s.section}>
+            <Text style={s.sectionTitle}>{section.title}</Text>
+            <View style={s.sectionCard}>
               {section.items.map((item, i) => (
                 <TouchableOpacity
                   key={item.label}
-                  style={[styles.row, i < section.items.length - 1 && styles.rowBorder]}
+                  style={[s.row, i < section.items.length - 1 && s.rowBorder]}
                   onPress={item.onPress}
                   activeOpacity={0.75}
                 >
-                  <View style={styles.rowIcon}>
+                  <View style={s.rowIcon}>
                     <Ionicons name={item.icon as any} size={19} color={colors.primary} />
                   </View>
-                  <Text style={styles.rowLabel}>{item.label}</Text>
+                  <Text style={s.rowLabel}>{item.label}</Text>
                   <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
                 </TouchableOpacity>
               ))}
@@ -100,27 +93,28 @@ export default function SettingsScreen({ navigation }: Props) {
           </View>
         ))}
 
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
+        <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <Text style={styles.logoutText}>Log Out</Text>
+          <Text style={s.logoutText}>Log Out</Text>
         </TouchableOpacity>
 
-        <Text style={styles.version}>CampusBazaar v1.0.0</Text>
+        <Text style={s.version}>CampusBazaar v1.0.0</Text>
         <View style={{ height: spacing.xxxl }} />
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: colors.background },
+const s = StyleSheet.create({
+  container:    { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: spacing.xl, paddingVertical: spacing.lg,
-    borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  headerTitle: { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.textPrimary },
-  content:     { padding: spacing.xl },
+  headerTitle:  { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.textPrimary },
+  content:      { padding: spacing.xl },
   userRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     backgroundColor: colors.surface, borderRadius: borderRadius.lg,
@@ -131,29 +125,33 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary + '25',
     alignItems: 'center', justifyContent: 'center',
   },
-  userInitial: { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.primary },
-  userName:    { fontSize: typography.sizes.md, fontWeight: typography.weights.semibold, color: colors.textPrimary },
-  userEmail:   { fontSize: typography.sizes.sm, color: colors.textSecondary, marginTop: 2 },
-  section:     { marginBottom: spacing.xl },
-  sectionTitle:{ fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold, color: colors.textTertiary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: spacing.sm },
-  sectionCard: { backgroundColor: colors.surface, borderRadius: borderRadius.lg, overflow: 'hidden', ...shadows.small },
+  userInitial:  { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.primary },
+  userName:     { fontSize: typography.sizes.md, fontWeight: typography.weights.semibold, color: colors.textPrimary },
+  userEmail:    { fontSize: typography.sizes.sm, color: colors.textSecondary, marginTop: 2 },
+  section:      { marginBottom: spacing.xl },
+  sectionTitle: {
+    fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold,
+    color: colors.textTertiary, textTransform: 'uppercase', letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+  },
+  sectionCard:  { backgroundColor: colors.surface, borderRadius: borderRadius.lg, overflow: 'hidden', ...shadows.small },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
   },
-  rowBorder:   { borderBottomWidth: 1, borderBottomColor: colors.border },
+  rowBorder:    { borderBottomWidth: 1, borderBottomColor: colors.border },
   rowIcon: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: colors.primary + '15',
     alignItems: 'center', justifyContent: 'center',
   },
-  rowLabel: { flex: 1, fontSize: typography.sizes.md, color: colors.textPrimary, fontWeight: typography.weights.medium },
+  rowLabel:     { flex: 1, fontSize: typography.sizes.md, color: colors.textPrimary, fontWeight: typography.weights.medium },
   logoutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: spacing.sm, paddingVertical: spacing.lg, borderRadius: borderRadius.lg,
     backgroundColor: colors.error + '10', borderWidth: 1, borderColor: colors.error + '30',
     marginBottom: spacing.lg,
   },
-  logoutText: { fontSize: typography.sizes.md, fontWeight: typography.weights.semibold, color: colors.error },
-  version:    { textAlign: 'center', fontSize: typography.sizes.xs, color: colors.textTertiary },
+  logoutText:   { fontSize: typography.sizes.md, fontWeight: typography.weights.semibold, color: colors.error },
+  version:      { textAlign: 'center', fontSize: typography.sizes.xs, color: colors.textTertiary },
 });

@@ -1,0 +1,24 @@
+name               = "campusbazaar-upload"
+main               = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ALLOWED_ORIGIN = "*"
+
+# ─── D1 Database ──────────────────────────────────────────────────────────────
+# Step 1: npx wrangler d1 create campusbazaar
+# Step 2: paste the database_id from the output below
+# Step 3: npx wrangler d1 execute campusbazaar --file=./schema.sql
+[[d1_databases]]
+binding       = "DB"
+database_name = "campusbazaar"
+database_id   = "f7bfeace-eafe-4c1f-8f15-73aed5514620"
+
+# ─── Secrets (run `npx wrangler secret put <NAME>` for each) ─────────────────
+# npx wrangler secret put R2_ACCOUNT_ID
+# npx wrangler secret put R2_ACCESS_KEY_ID
+# npx wrangler secret put R2_SECRET_ACCESS_KEY
+# npx wrangler secret put R2_BUCKET_NAME
+# npx wrangler secret put R2_PUBLIC_URL
+# npx wrangler secret put JWT_SECRET       <- generate: openssl rand -hex 32

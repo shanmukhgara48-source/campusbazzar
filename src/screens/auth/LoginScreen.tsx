@@ -16,12 +16,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography } from '../../theme';
 import { signIn } from '../../services/authService';
+import { useAuth } from '../../context/AuthContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 };
 
 export default function LoginScreen({ navigation }: Props) {
+  const { refreshUser } = useAuth();
   const [email, setEmail]         = useState('');
   const [password, setPassword]   = useState('');
   const [showPw, setShowPw]       = useState(false);
@@ -48,21 +50,11 @@ export default function LoginScreen({ navigation }: Props) {
   const handleLogin = async () => {
     if (!validate()) return;
     setIsLoading(true);
-    console.log('[LoginScreen] attempting login:', email.trim());
     try {
       await signIn(email, password);
+      await refreshUser();
     } catch (e: any) {
-      console.log('[LoginScreen] error code:', e.code);
-      console.log('[LoginScreen] error message:', e.message);
-      const msg =
-        e.code === 'auth/invalid-credential'  ? 'Email or password is incorrect. Please sign up first if you don\'t have an account.' :
-        e.code === 'auth/user-not-found'       ? 'No account found. Please sign up first.' :
-        e.code === 'auth/wrong-password'       ? 'Incorrect password.' :
-        e.code === 'auth/invalid-email'        ? 'Invalid email address.' :
-        e.code === 'auth/user-disabled'        ? 'This account has been disabled.' :
-        e.code === 'auth/too-many-requests'    ? 'Too many attempts. Try again later.' :
-        e.code === 'auth/network-request-failed' ? 'Network error. Check your connection.' :
-        e.message ?? 'Login failed. Please try again.';
+      const msg = e.message ?? 'Login failed. Please try again.';
       Alert.alert('Login Failed', msg);
     } finally {
       setIsLoading(false);

@@ -1,9 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { User as FirebaseUser } from 'firebase/auth';
-import { db, auth } from '../services/firebase';
-import { subscribeToAuthState, signOut } from '../services/authService';
-import { DBUser } from '../services/authService';
+import { getStoredUser, signOut as authSignOut, DBUser } from '../services/authService';
+import { authApi } from '../services/api';
+import { ApiUser } from '../services/api';
 
 interface AuthContextType {
   user: DBUser | null;
@@ -19,64 +17,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]       = useState<DBUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadUserFromDB = async (firebaseUser: FirebaseUser) => {
-    const uid = firebaseUser.uid;
-    try {
-      const snap = await getDoc(doc(db, 'users', uid));
-      if (snap.exists()) {
-        console.log('[AuthContext] loaded user from Firestore:', uid);
-        setUser(snap.data() as DBUser);
-      } else {
-        // Doc not yet written (race condition on signup) — create minimal record
-        console.log('[AuthContext] doc missing, creating fallback for:', uid);
-        const fallback: DBUser = {
-          uid,
-          email:       firebaseUser.email ?? '',
-          name:        firebaseUser.displayName ?? '',
-          avatar:      '',
-          college:     '',
-          rollNumber:  '',
-          createdAt:   serverTimestamp(),
-        };
-        await setDoc(doc(db, 'users', uid), fallback);
-        setUser(fallback);
-      }
-    } catch (e) {
-      console.log('[AuthContext] Firestore error, using minimal user:', e);
-      // Still authenticate — do NOT block login because of a DB error
-      setUser({
-        uid,
-        email:      firebaseUser.email ?? '',
-        name:       firebaseUser.displayName ?? '',
-        avatar:     '',
-        college:    '',
-        rollNumber: '',
-        createdAt:  null,
-      });
-    }
-  };
-
+  // On app start: restore session from stored JWT
   useEffect(() => {
-    const unsub = subscribeToAuthState(async firebaseUser => {
-      console.log('[AuthContext] auth state changed, user:', firebaseUser?.uid ?? 'null');
-      if (firebaseUser) {
-        await loadUserFromDB(firebaseUser);
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
-    return unsub;
+    getStoredUser()
+      .then(u => setUser(u))
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false));
   }, []);
 
   const logout = async () => {
-    await signOut();
+    await authSignOut();
     setUser(null);
   };
 
   const refreshUser = async () => {
-    const firebaseUser = auth.currentUser;
-    if (firebaseUser) await loadUserFromDB(firebaseUser);
+    const u = await getStoredUser();
+    setUser(u);
   };
 
   return (

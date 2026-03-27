@@ -45,13 +45,12 @@ export default function SellerDashboardScreen({ navigation }: Props) {
           onPress: async () => {
             setActionLoading(offer.id);
             try {
-              const txId = await acceptOffer(offer, user?.name || user?.email || 'Seller');
+              await acceptOffer(offer);
               Alert.alert(
                 'Offer Accepted!',
-                `Transaction created. Coordinate the meetup with ${offer.buyerName}.`,
+                `${offer.buyerName} has been notified. The item is now reserved for them at ₹${offer.offerPrice.toLocaleString('en-IN')}.`,
                 [{ text: 'OK' }],
               );
-              console.log('[SellerDashboard] offer accepted, txId:', txId);
             } catch (e: any) {
               Alert.alert('Error', e?.message ?? 'Could not accept offer. Please try again.');
             } finally {

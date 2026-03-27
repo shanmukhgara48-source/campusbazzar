@@ -1,33 +1,52 @@
-import {
-  doc, getDoc, setDoc, updateDoc, serverTimestamp,
-  collection, query, where, getDocs,
-} from 'firebase/firestore';
-import { db } from './firebase';
+/**
+ * User service — Cloudflare Worker API (replaces Firestore).
+ */
+import { usersApi, authApi, ApiUser } from './api';
 
-export interface FSUser {
-  uid: string;
-  name: string;
-  email: string;
-  avatar: string;
-  college: string;
-  createdAt: unknown;
+export type { ApiUser as FSUser };
+
+export async function getUser(uid: string): Promise<ApiUser | null> {
+  try {
+    const { user } = await usersApi.get(uid);
+    return user;
+  } catch {
+    return null;
+  }
 }
 
-export async function createUser(uid: string, data: Omit<FSUser, 'uid' | 'createdAt'>) {
-  await setDoc(doc(db, 'users', uid), { ...data, uid, createdAt: serverTimestamp() });
+export async function updateUserProfile(data: Partial<ApiUser>): Promise<void> {
+  await authApi.updateProfile(data);
 }
 
-export async function getUser(uid: string): Promise<FSUser | null> {
-  const snap = await getDoc(doc(db, 'users', uid));
-  return snap.exists() ? (snap.data() as FSUser) : null;
+/**
+ * updateUser — convenience wrapper used by EditProfileScreen.
+ * The uid param is accepted for signature compatibility but identity
+ * comes from the JWT token stored in AsyncStorage.
+ */
+export async function updateUser(_uid: string, data: Partial<ApiUser>): Promise<void> {
+  await authApi.updateProfile(data);
 }
 
-export async function updateUser(uid: string, data: Partial<FSUser>) {
-  await updateDoc(doc(db, 'users', uid), data);
-}
-
-export async function getUsersByCollege(college: string): Promise<FSUser[]> {
-  const q = query(collection(db, 'users'), where('college', '==', college));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => d.data() as FSUser);
+/**
+ * blockUser — blocks targetUid for the authenticated user.
+ * Fires a best-effort POST; silently ignores failure if the endpoint
+ * is not yet deployed.
+ */
+export async function blockUser(myUid: string, targetUid: string): Promise<void> {
+  const workerUrl = process.env.EXPO_PUBLIC_UPLOAD_WORKER_URL ?? '';
+  if (!workerUrl) return;
+  const { getToken } = await import('./api');
+  const token = await getToken();
+  try {
+    await fetch(`${workerUrl}/users/${targetUid}/block`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ blockerId: myUid }),
+    });
+  } catch (e) {
+    console.warn('[blockUser] non-fatal:', e);
+  }
 }

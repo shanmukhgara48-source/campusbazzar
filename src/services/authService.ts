@@ -1,12 +1,8 @@
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-  User as FirebaseUser,
-} from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from './firebase';
+/**
+ * Auth service — backed by Cloudflare Worker JWT auth (no Firebase).
+ * Preserves the same DBUser shape so existing screens need no changes.
+ */
+import { authApi, setToken, clearToken, ApiUser } from './api';
 
 export interface DBUser {
   uid: string;
@@ -16,7 +12,6 @@ export interface DBUser {
   college: string;
   rollNumber: string;
   createdAt: unknown;
-  // Optional fields populated from Firestore or legacy mock data
   rating?: number;
   reviewCount?: number;
   totalSales?: number;
@@ -28,81 +23,61 @@ export interface DBUser {
   role?: string;
 }
 
-export async function createUserInDB(
-  user: FirebaseUser,
-  extra: { name: string; college: string; rollNumber: string },
-): Promise<void> {
-  const ref = doc(db, 'users', user.uid);
-  const snap = await getDoc(ref);
-  if (snap.exists()) {
-    console.log('[createUserInDB] user already exists, skipping write');
-    return;
-  }
-  const data: DBUser = {
-    uid:          user.uid,
-    email:        user.email ?? '',
-    name:         extra.name,
-    avatar:       '',
-    college:      extra.college,
-    rollNumber:   extra.rollNumber,
-    createdAt:    serverTimestamp(),
-    rating:       0,
-    reviewCount:  0,
-    totalSales:   0,
-    isVerified:   false,
-    role:         'buyer',
-    memberSince:  new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
+function apiUserToDBUser(u: ApiUser): DBUser {
+  return {
+    uid:          u.uid,
+    email:        u.email,
+    name:         u.name,
+    avatar:       u.avatar,
+    college:      u.college,
+    rollNumber:   u.rollNumber,
+    createdAt:    u.createdAt,
+    rating:       u.rating,
+    reviewCount:  u.reviewCount,
+    totalSales:   u.totalSales,
+    year:         u.year,
+    department:   u.department,
+    memberSince:  u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : '',
+    responseTime: u.responseTime,
+    isVerified:   u.isVerified,
+    role:         u.role,
   };
-  console.log('[createUserInDB] writing to Firestore:', data);
-  await setDoc(ref, data);
-  console.log('[createUserInDB] success');
 }
 
 export async function signUp(
   email: string,
   password: string,
   extra: { name: string; college: string; rollNumber: string },
-): Promise<FirebaseUser> {
-  const cleanEmail = email.trim().toLowerCase();
-  const cleanPassword = password.trim();
-  console.log('[signUp] email:', cleanEmail);
-  console.log('[signUp] password length:', cleanPassword.length);
-  const { user } = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-  console.log('[signUp] Auth success, uid:', user.uid);
-  await createUserInDB(user, extra);
-  return user;
+): Promise<DBUser> {
+  const { token, user } = await authApi.register({
+    email: email.trim().toLowerCase(),
+    password: password.trim(),
+    name: extra.name,
+    college: extra.college,
+    rollNumber: extra.rollNumber,
+  });
+  await setToken(token);
+  return apiUserToDBUser(user);
 }
 
-export async function signIn(email: string, password: string): Promise<FirebaseUser> {
-  const cleanEmail = email.trim().toLowerCase();
-  const cleanPassword = password.trim();
-  console.log('[signIn] email:', cleanEmail);
-  console.log('[signIn] password length:', cleanPassword.length);
-  console.log('[signIn] firebase projectId:', auth.app.options.projectId);
-  const { user } = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-  console.log('[signIn] success, uid:', user.uid);
-
-  // Fallback: ensure user doc exists (e.g. created on another device)
-  const snap = await getDoc(doc(db, 'users', user.uid));
-  if (!snap.exists()) {
-    console.log('[signIn] user doc missing, creating fallback');
-    await setDoc(doc(db, 'users', user.uid), {
-      uid:       user.uid,
-      email:     user.email ?? '',
-      name:      user.displayName ?? '',
-      avatar:    '',
-      college:   '',
-      rollNumber:'',
-      createdAt: serverTimestamp(),
-    });
-  }
-  return user;
+export async function signIn(email: string, password: string): Promise<DBUser> {
+  const { token, user } = await authApi.login({
+    email: email.trim().toLowerCase(),
+    password: password.trim(),
+  });
+  await setToken(token);
+  return apiUserToDBUser(user);
 }
 
 export async function signOut(): Promise<void> {
-  await firebaseSignOut(auth);
+  await clearToken();
 }
 
-export function subscribeToAuthState(callback: (user: FirebaseUser | null) => void) {
-  return onAuthStateChanged(auth, callback);
+export async function getStoredUser(): Promise<DBUser | null> {
+  try {
+    const { user } = await authApi.me();
+    return apiUserToDBUser(user);
+  } catch {
+    return null;
+  }
 }

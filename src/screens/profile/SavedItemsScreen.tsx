@@ -6,8 +6,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../services/firebase';
 import { ProfileStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 import { useFavourites } from '../../context/FavouritesContext';

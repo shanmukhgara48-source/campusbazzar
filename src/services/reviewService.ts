@@ -1,9 +1,10 @@
-import {
-  collection, addDoc, query, where, orderBy,
-  onSnapshot, serverTimestamp, Unsubscribe,
-} from 'firebase/firestore';
+/**
+ * Review service — Cloudflare Worker API (replaces Firestore).
+ */
 import { useEffect, useState } from 'react';
-import { db } from './firebase';
+import { getToken } from './api';
+
+const BASE = process.env.EXPO_PUBLIC_UPLOAD_WORKER_URL ?? '';
 
 export interface FSReview {
   id: string;
@@ -16,35 +17,32 @@ export interface FSReview {
   createdAt: unknown;
 }
 
-export async function addReview(data: Omit<FSReview, 'id' | 'createdAt'>): Promise<string> {
-  const ref = await addDoc(collection(db, 'reviews'), { ...data, createdAt: serverTimestamp() });
-  return ref.id;
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = await getToken();
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers ?? {}) },
+  });
+  const data = await res.json() as T;
+  return data;
 }
 
-// ─── Real-time hook ──────────────────────────────────────────────────────────
+export async function addReview(data: Omit<FSReview, 'id' | 'createdAt'>): Promise<string> {
+  const res = await apiFetch<{ id: string }>('/reviews', { method: 'POST', body: JSON.stringify(data) });
+  return res.id;
+}
 
-export function useSellerReviews(sellerId: string) {
+export function useSellerReviews(sellerId: string | undefined) {
   const [reviews, setReviews] = useState<FSReview[]>([]);
   const [loading, setLoading] = useState(true);
-  const [avgRating, setAvgRating] = useState(0);
 
   useEffect(() => {
-    if (!sellerId) return;
-    const q = query(
-      collection(db, 'reviews'),
-      where('sellerId', '==', sellerId),
-      orderBy('createdAt', 'desc'),
-    );
-    const unsub: Unsubscribe = onSnapshot(q, snap => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as FSReview));
-      setReviews(data);
-      setAvgRating(
-        data.length ? data.reduce((sum, r) => sum + r.rating, 0) / data.length : 0,
-      );
-      setLoading(false);
-    });
-    return unsub;
+    if (!sellerId) { setLoading(false); return; }
+    apiFetch<{ reviews: FSReview[] }>(`/reviews/seller/${sellerId}`)
+      .then(({ reviews: data }) => setReviews(data))
+      .catch(() => setReviews([]))
+      .finally(() => setLoading(false));
   }, [sellerId]);
 
-  return { reviews, avgRating, loading };
+  return { reviews, loading };
 }

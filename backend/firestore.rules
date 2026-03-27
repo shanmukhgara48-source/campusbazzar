@@ -32,13 +32,18 @@ service cloud.firestore {
       allow read:   if isAuth();
       allow create: if isAuth() && request.resource.data.sellerId == request.auth.uid;
 
-      // Seller can update anything on their listing.
-      // Any authenticated buyer can flip status → 'sold' (markAsSold / handlePurchase).
+      // Seller can update any field on their own listing.
+      // Any authenticated user can flip only 'status' to 'sold' (handlePurchase / runTransaction).
+      // Any authenticated user can set the deal fields when an offer is accepted
+      //   (acceptOffer batch runs under the seller's auth, but the runTransaction in
+      //    handlePurchase runs under the buyer's auth and only touches 'status').
       allow update: if isAuth() && (
         resource.data.sellerId == request.auth.uid
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
         || (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-          && request.resource.data.status == 'sold'
+          request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(['status', 'finalPrice', 'acceptedOfferId', 'acceptedBuyerId'])
+          && request.resource.data.status in ['sold', 'reserved']
         )
       );
 
@@ -103,12 +108,38 @@ service cloud.firestore {
       allow update: if isAuth() && request.auth.uid in resource.data.participants;
 
       match /messages/{messageId} {
-        allow read:   if isAuth() && isChatParticipant(chatId);
+        allow read: if isAuth() && isChatParticipant(chatId);
+
+        // Normal messages: senderId must be the caller.
+        // System messages (type == 'system'): any participant can post.
         allow create: if isAuth()
           && isChatParticipant(chatId)
-          && request.resource.data.senderId == request.auth.uid;
-        allow update, delete: if false;
+          && (
+            request.resource.data.senderId == request.auth.uid
+            || request.resource.data.type == 'system'
+          );
+
+        // Participants may update ONLY the 'status' field on offer messages
+        // (seller accepts/rejects → flips status to 'accepted'/'rejected').
+        allow update: if isAuth()
+          && isChatParticipant(chatId)
+          && resource.data.type == 'offer'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['accepted', 'rejected'];
+
+        allow delete: if false;
       }
+    }
+
+    // ── Blocked users (per-user private subcollection) ─────────────────────────
+    match /users/{uid}/blockedUsers/{targetUid} {
+      allow read, write: if isAuth() && isOwner(uid);
+    }
+
+    // ── Reports (user-submitted content reports for admin review) ──────────────
+    match /reports/{reportId} {
+      allow create: if isAuth() && request.resource.data.reporterId == request.auth.uid;
+      allow read, update, delete: if false;
     }
 
     // ── Reviews ────────────────────────────────────────────────────────────────
@@ -116,6 +147,17 @@ service cloud.firestore {
       allow read:          if isAuth();
       allow create:        if isAuth() && request.resource.data.reviewerId == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    // ── Waitlist (landing page — no auth required) ─────────────────────────────
+    // Public can create (submit email from landing page).
+    // No reads, updates, or deletes allowed publicly — admin access only.
+    match /waitlist/{docId} {
+      allow create, update: if true
+        && request.resource.data.keys().hasAll(['email', 'createdAt'])
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 0;
+      allow read, delete: if false;
     }
   }
 }

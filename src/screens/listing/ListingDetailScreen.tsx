@@ -14,23 +14,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
-import { doc, getDoc } from 'firebase/firestore';
+import { fetchListing } from '../../services/listingService';
 import { getOrCreateChat } from '../../services/chatService';
 import { HomeStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 import { mockListings, mockReviews } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
 import { useFavourites } from '../../context/FavouritesContext';
-import { db } from '../../services/firebase';
 import { Listing } from '../../types';
-import { Timestamp } from 'firebase/firestore';
 
 function formatTimestamp(value: unknown): string {
   if (!value) return '';
-  if (value instanceof Timestamp) {
-    return value.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  if (typeof value === 'string') {
+    try { return new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); }
+    catch { return value; }
   }
-  if (typeof value === 'string') return value;
   return '';
 }
 
@@ -59,27 +57,10 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
   const [currentImage, setCurrentImage] = useState(0);
 
   useEffect(() => {
-    const fetchListing = async () => {
-      console.log('[ListingDetail] fetching id:', listingId);
-      try {
-        // Try Firestore first
-        const snap = await getDoc(doc(db, 'listings', listingId));
-        if (snap.exists()) {
-          setListing({ id: snap.id, ...snap.data() } as Listing);
-        } else {
-          // Fall back to mock data (for mock IDs like "listing_1")
-          const mock = mockListings.find(l => l.id === listingId) ?? null;
-          console.log('[ListingDetail] not in Firestore, mock fallback:', mock?.id ?? 'not found');
-          setListing(mock);
-        }
-      } catch (e) {
-        console.log('[ListingDetail] Firestore error, using mock fallback:', e);
-        setListing(mockListings.find(l => l.id === listingId) ?? null);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchListing();
+    fetchListing(listingId)
+      .then(l => setListing((l ?? mockListings.find(m => m.id === listingId) ?? null) as any))
+      .catch(() => setListing(mockListings.find(l => l.id === listingId) ?? null))
+      .finally(() => setLoading(false));
   }, [listingId]);
 
   if (loading) {
@@ -105,6 +86,12 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
   const sellerReviews = mockReviews.filter(r => r.sellerId === listing.sellerId);
   const isOwnListing = user?.uid === listing.sellerId;
   const isSold = listing.status === 'sold';
+  const isReserved = listing.status === 'reserved';
+  const finalPrice = (listing as any).finalPrice as number | undefined;
+  const acceptedBuyerId = (listing as any).acceptedBuyerId as string | undefined;
+  const isAcceptedBuyer = isReserved && !!user?.uid && user.uid === acceptedBuyerId;
+  const isNegotiated = typeof finalPrice === 'number' && finalPrice !== listing.price;
+  const displayPrice = finalPrice ?? listing.price;
   const discount = listing.originalPrice
     ? Math.round(((listing.originalPrice - listing.price) / listing.originalPrice) * 100)
     : null;
@@ -183,12 +170,27 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
               </View>
             </View>
             <Text style={styles.title}>{listing.title}</Text>
+            {isNegotiated && (
+              <View style={styles.dealBanner}>
+                <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+                <Text style={styles.dealBannerText}>Accepted Deal Price</Text>
+              </View>
+            )}
+            {isReserved && !isNegotiated && (
+              <View style={[styles.dealBanner, { backgroundColor: colors.warning + '20' }]}>
+                <Ionicons name="time-outline" size={14} color={colors.warning} />
+                <Text style={[styles.dealBannerText, { color: colors.warning }]}>Reserved</Text>
+              </View>
+            )}
             <View style={styles.priceRow}>
-              <Text style={styles.price}>₹{listing.price.toLocaleString('en-IN')}</Text>
-              {listing.originalPrice && (
+              <Text style={styles.price}>₹{displayPrice.toLocaleString('en-IN')}</Text>
+              {isNegotiated && (
+                <Text style={styles.originalPrice}>₹{listing.price.toLocaleString('en-IN')}</Text>
+              )}
+              {!isNegotiated && listing.originalPrice && (
                 <Text style={styles.originalPrice}>₹{listing.originalPrice.toLocaleString('en-IN')}</Text>
               )}
-              {discount && (
+              {!isNegotiated && discount && (
                 <View style={styles.savingBadge}>
                   <Text style={styles.savingText}>Save ₹{(listing.originalPrice! - listing.price).toLocaleString('en-IN')}</Text>
                 </View>
@@ -297,7 +299,20 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
       </ScrollView>
 
       {/* Bottom Action Bar */}
-      {!isOwnListing && (
+      {!isOwnListing && isAcceptedBuyer && (
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
+          <TouchableOpacity
+            style={styles.checkoutBtn}
+            onPress={() => navigation.navigate('Meetup', { listingId: listing.id })}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="checkmark-circle" size={20} color="#fff" />
+            <Text style={styles.checkoutBtnText}>Proceed to Checkout · ₹{(finalPrice ?? listing.price).toLocaleString('en-IN')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {!isOwnListing && !isAcceptedBuyer && (
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
           <TouchableOpacity
             style={styles.messageBtn}
@@ -345,18 +360,18 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
             <Text style={styles.messageBtnText}>Message</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.offerBtn, isSold && styles.btnDisabled]}
-            onPress={() => !isSold && navigation.navigate('Offer', { listingId: listing.id })}
-            disabled={isSold}
+            style={[styles.offerBtn, (isSold || isReserved) && styles.btnDisabled]}
+            onPress={() => !isSold && !isReserved && navigation.navigate('Offer', { listingId: listing.id })}
+            disabled={isSold || isReserved}
           >
-            <Text style={styles.offerBtnText}>{isSold ? 'Sold' : 'Make Offer'}</Text>
+            <Text style={styles.offerBtnText}>{isSold ? 'Sold' : isReserved ? 'Reserved' : 'Make Offer'}</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.buyBtn, isSold && styles.btnDisabled]}
-            onPress={() => !isSold && navigation.navigate('Meetup', { listingId: listing.id })}
-            disabled={isSold}
+            style={[styles.buyBtn, (isSold || isReserved) && styles.btnDisabled]}
+            onPress={() => !isSold && !isReserved && navigation.navigate('Meetup', { listingId: listing.id })}
+            disabled={isSold || isReserved}
           >
-            <Text style={styles.buyBtnText}>{isSold ? 'Sold' : 'Buy Now'}</Text>
+            <Text style={styles.buyBtnText}>{isSold ? 'Sold' : isReserved ? 'Reserved' : 'Buy Now'}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -726,6 +741,21 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.semibold,
     color: '#fff',
   },
+  checkoutBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.success,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
+  },
+  checkoutBtnText: {
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.bold,
+    color: '#fff',
+  },
   editBtn: {
     flex: 1,
     flexDirection: 'row',
@@ -754,5 +784,21 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.semibold,
     color: '#fff',
+  },
+  dealBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.success + '18',
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+    marginBottom: spacing.sm,
+  },
+  dealBannerText: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.semibold,
+    color: colors.success,
   },
 });

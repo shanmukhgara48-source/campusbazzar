@@ -9,8 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { fetchListing } from '../../services/listingService';
 import { HomeStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 import { mockListings } from '../../data/mockData';
@@ -19,6 +18,7 @@ import { createTransaction } from '../../services/transactionService';
 import { handlePurchase } from '../../services/listingService';
 import { createNotification } from '../../services/notificationsService';
 import { generateCheckoutHTML, RazorpayWebMessage } from '../../services/razorpayService';
+import { calculateFees } from '../../services/pricingService';
 import { Listing, MeetupLocation } from '../../types';
 
 type Props = {
@@ -38,7 +38,7 @@ const TIME_SLOTS = ['9:00 AM', '11:00 AM', '1:00 PM', '3:00 PM', '5:00 PM', '7:0
 
 export default function MeetupScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { listingId } = route.params;
+  const { listingId, finalPrice: negotiatedPrice } = route.params;
   const { user } = useAuth();
 
   const [listing, setListing]           = useState<Listing | null>(null);
@@ -49,21 +49,10 @@ export default function MeetupScreen({ navigation, route }: Props) {
   const [showRazorpay, setShowRazorpay] = useState(false);
 
   useEffect(() => {
-    const fetch = async () => {
-      try {
-        const snap = await getDoc(doc(db, 'listings', listingId));
-        if (snap.exists()) {
-          setListing({ id: snap.id, ...snap.data() } as Listing);
-        } else {
-          setListing(mockListings.find(l => l.id === listingId) ?? null);
-        }
-      } catch {
-        setListing(mockListings.find(l => l.id === listingId) ?? null);
-      } finally {
-        setFetchLoading(false);
-      }
-    };
-    fetch();
+    fetchListing(listingId)
+      .then(l => setListing((l ?? mockListings.find(m => m.id === listingId) ?? null) as any))
+      .catch(() => setListing(mockListings.find(l => l.id === listingId) ?? null))
+      .finally(() => setFetchLoading(false));
   }, [listingId]);
 
   if (fetchLoading) {
@@ -84,26 +73,55 @@ export default function MeetupScreen({ navigation, route }: Props) {
   const isOwnListing = user?.uid === listing.sellerId;
   const canPay       = !!(location && timeSlot && !isSold && !isOwnListing);
 
+  // Use negotiated price from chat offer flow if provided, else listing's stored finalPrice, else asking price
+  const itemPrice    = negotiatedPrice ?? listing.finalPrice ?? listing.price;
+  const isNegotiated = itemPrice < listing.price;
+  const fees           = calculateFees(itemPrice);
+  const convenienceFee = fees.platformFee + fees.gst;
+
   // ── Core purchase logic (called on Razorpay success) ──────────────────────
   const completePurchase = async (razorpayPaymentId: string) => {
     if (!user?.uid || !location || !timeSlot || !listing) return;
     setIsConfirming(true);
     try {
+      const deliveryOtp    = String(Math.floor(1000 + Math.random() * 9000));
+      const convenienceFee = fees.platformFee + fees.gst;
+
+      // QR payload — filled in after we know the txId
+      // We create the transaction first, then update qrCodeData with the real txId
       const txId = await createTransaction({
-        listingId:      listing.id,
-        listingTitle:   listing.title,
-        listingImage:   listing.images?.[0] ?? '',
-        listingPrice:   listing.price,
-        buyerId:        user.uid,
-        buyerName:      user.name || user.email,
-        sellerId:       listing.sellerId,
-        sellerName:     listing.seller?.name ?? 'Seller',
-        amount:         listing.price,
-        meetupLocation: location,
-        meetupTime:     `${dateStr}, ${timeSlot}`,
-        paymentMethod:  'Razorpay',
+        listingId:         listing.id,
+        listingTitle:      listing.title,
+        listingImage:      listing.images?.[0] ?? '',
+        listingPrice:      listing.price,
+        buyerId:           user.uid,
+        buyerName:         user.name || user.email,
+        sellerId:          listing.sellerId,
+        sellerName:        listing.seller?.name ?? 'Seller',
+        amount:            fees.total,
+        itemPrice:         fees.itemPrice,
+        platformFee:       fees.platformFee,
+        gst:               fees.gst,
+        convenienceFee,
+        convenienceFeePaid: true,
+        qrCodeData:        '',       // patched below
+        meetupLocation:    location,
+        meetupTime:        `${dateStr}, ${timeSlot}`,
+        paymentMethod:     'Razorpay',
+        deliveryOtp,
         razorpayPaymentId,
-      } as any);
+      });
+
+      // Patch qrCodeData now that we have the real txId
+      const { transactionsApi } = await import('../../services/api');
+      const qrCodeData = JSON.stringify({
+        v:         1,
+        txId,
+        listingId: listing.id,
+        buyerId:   user.uid,
+        sellerId:  listing.sellerId,
+      });
+      await transactionsApi.update(txId, { qrCodeData } as any);
 
       try { await handlePurchase(listing.id); }
       catch (e: any) { console.warn('[MeetupScreen] handlePurchase non-fatal:', e?.message); }
@@ -175,7 +193,18 @@ export default function MeetupScreen({ navigation, route }: Props) {
           <Image source={{ uri: listing.images?.[0] }} style={styles.listingImg} />
           <View style={styles.listingInfo}>
             <Text style={styles.listingTitle} numberOfLines={2}>{listing.title}</Text>
-            <Text style={styles.listingPrice}>₹{listing.price.toLocaleString('en-IN')}</Text>
+            {isNegotiated ? (
+              <View>
+                <Text style={styles.listingPrice}>₹{itemPrice.toLocaleString('en-IN')}
+                  <Text style={styles.dealTag}> · Deal Price</Text>
+                </Text>
+                <Text style={styles.originalPriceStrike}>
+                  Original: ₹{listing.price.toLocaleString('en-IN')}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.listingPrice}>₹{itemPrice.toLocaleString('en-IN')}</Text>
+            )}
             <View style={styles.sellerRow}>
               {listing.seller?.avatar
                 ? <Image source={{ uri: listing.seller.avatar }} style={styles.sellerAvatar} />
@@ -253,24 +282,60 @@ export default function MeetupScreen({ navigation, route }: Props) {
           ))}
         </View>
 
-        {/* ── Razorpay Payment Card ──────────────────────────────────────── */}
+        {/* ── Price Breakdown ───────────────────────────────────────────── */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Payment</Text>
-          <View style={styles.razorpayCard}>
-            <View style={styles.razorpayCardLeft}>
-              <View style={styles.razorpayIconBox}>
-                <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
-              </View>
-              <View>
-                <Text style={styles.razorpayCardTitle}>Pay securely with Razorpay</Text>
-                <Text style={styles.razorpayCardSub}>UPI · Cards · Net Banking · Wallets</Text>
-              </View>
+          <Text style={styles.sectionLabel}>Payment Summary</Text>
+          <View style={styles.breakdownCard}>
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownLabel}>Item Price</Text>
+              <Text style={styles.breakdownValue}>₹{fees.itemPrice.toLocaleString('en-IN')}</Text>
             </View>
-            <View style={styles.razorpayAmountBox}>
-              <Text style={styles.razorpayAmountLabel}>Total</Text>
-              <Text style={styles.razorpayAmount}>
-                ₹{listing.price.toLocaleString('en-IN')}
+            <View style={styles.breakdownRow}>
+              <View style={styles.breakdownLabelGroup}>
+                <Text style={styles.breakdownLabel}>Platform Fee</Text>
+                <Text style={styles.breakdownMeta}>({Math.round(fees.feePercent * 100)}% of item price)</Text>
+              </View>
+              <Text style={styles.breakdownValue}>₹{fees.platformFee.toLocaleString('en-IN')}</Text>
+            </View>
+            <View style={styles.breakdownRow}>
+              <View style={styles.breakdownLabelGroup}>
+                <Text style={styles.breakdownLabel}>GST</Text>
+                <Text style={styles.breakdownMeta}>(18% of platform fee)</Text>
+              </View>
+              <Text style={styles.breakdownValue}>₹{fees.gst.toLocaleString('en-IN')}</Text>
+            </View>
+            <View style={styles.breakdownDivider} />
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownTotalLabel}>Total Amount</Text>
+              <Text style={styles.breakdownTotalValue}>₹{fees.total.toLocaleString('en-IN')}</Text>
+            </View>
+            <View style={styles.breakdownDivider} />
+            <View style={styles.breakdownRow}>
+              <View style={styles.breakdownLabelGroup}>
+                <Text style={[styles.breakdownLabel, { color: colors.primary, fontWeight: '600' }]}>Pay Online Now</Text>
+                <Text style={styles.breakdownMeta}>(convenience fee — via Razorpay)</Text>
+              </View>
+              <Text style={[styles.breakdownTotalValue, { color: colors.primary }]}>
+                ₹{convenienceFee.toLocaleString('en-IN')}
               </Text>
+            </View>
+            <View style={styles.breakdownRow}>
+              <View style={styles.breakdownLabelGroup}>
+                <Text style={styles.breakdownLabel}>Pay at Meetup</Text>
+                <Text style={styles.breakdownMeta}>(item price — cash to seller)</Text>
+              </View>
+              <Text style={styles.breakdownValue}>₹{fees.itemPrice.toLocaleString('en-IN')}</Text>
+            </View>
+          </View>
+
+          {/* Razorpay badge */}
+          <View style={styles.rzpBadge}>
+            <View style={styles.rzpBadgeLeft}>
+              <Ionicons name="shield-checkmark" size={20} color={colors.primary} />
+              <View>
+                <Text style={styles.rzpBadgeTitle}>Pay securely with Razorpay</Text>
+                <Text style={styles.rzpBadgeSub}>UPI · Cards · Net Banking · Wallets</Text>
+              </View>
             </View>
           </View>
           <View style={styles.secureRow}>
@@ -298,6 +363,15 @@ export default function MeetupScreen({ navigation, route }: Props) {
           ))}
         </View>
 
+        {/* Protection badge */}
+        <View style={styles.protectionBadge}>
+          <Ionicons name="shield-checkmark" size={16} color={colors.success} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.protectionTitle}>Protected by CampusBazaar</Text>
+            <Text style={styles.protectionSub}>Refund available if item not delivered · OTP verified handoff</Text>
+          </View>
+        </View>
+
         {/* Pay Button */}
         <TouchableOpacity
           style={[styles.payBtn, (!canPay || isConfirming) && styles.payBtnDisabled]}
@@ -314,7 +388,7 @@ export default function MeetupScreen({ navigation, route }: Props) {
             <>
               <Ionicons name="shield-checkmark" size={20} color="#fff" />
               <Text style={styles.payBtnText}>
-                Pay ₹{listing.price.toLocaleString('en-IN')} with Razorpay
+                Pay Convenience Fee ₹{convenienceFee.toLocaleString('en-IN')}
               </Text>
             </>
           )}
@@ -340,7 +414,7 @@ export default function MeetupScreen({ navigation, route }: Props) {
           <WebView
             source={{
               html: generateCheckoutHTML({
-                amount:      listing.price,
+                amount:      convenienceFee,
                 name:        'CampusBazaar',
                 description: listing.title,
                 buyerName:   user?.name  || '',
@@ -351,6 +425,12 @@ export default function MeetupScreen({ navigation, route }: Props) {
             javaScriptEnabled
             domStorageEnabled
             startInLoadingState
+            // Android: allow Razorpay CDN (https) to load inside the webview
+            mixedContentMode="always"
+            originWhitelist={['*']}
+            // Android: allow Razorpay's UPI intent / payment app redirects
+            setSupportMultipleWindows={false}
+            thirdPartyCookiesEnabled
             renderLoading={() => (
               <View style={styles.rzpLoader}>
                 <ActivityIndicator size="large" color={colors.primary} />
@@ -476,8 +556,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: spacing.sm, ...shadows.medium,
   },
-  payBtnDisabled: { opacity: 0.5 },
-  payBtnText:     { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: '#fff' },
+  payBtnDisabled:      { opacity: 0.5 },
+  payBtnText:          { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: '#fff' },
+  dealTag:             { fontSize: typography.sizes.xs, fontWeight: typography.weights.semibold, color: colors.success },
+  originalPriceStrike: { fontSize: typography.sizes.xs, color: colors.textTertiary, textDecorationLine: 'line-through', marginTop: 2 },
+
+  // Price breakdown card
+  breakdownCard: {
+    backgroundColor: colors.surface, borderRadius: borderRadius.lg,
+    padding: spacing.lg, marginBottom: spacing.md, ...shadows.small,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  breakdownRow:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
+  breakdownLabelGroup: { gap: 1 },
+  breakdownLabel:      { fontSize: typography.sizes.sm, color: colors.textSecondary },
+  breakdownMeta:       { fontSize: 10, color: colors.textTertiary },
+  breakdownValue:      { fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold, color: colors.textPrimary },
+  breakdownDivider:    { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
+  breakdownTotalLabel: { fontSize: typography.sizes.md, fontWeight: typography.weights.bold, color: colors.textPrimary },
+  breakdownTotalValue: { fontSize: typography.sizes.lg, fontWeight: typography.weights.extrabold, color: colors.primary },
+
+  // Razorpay badge (replaces old razorpayCard)
+  rzpBadge: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: colors.primary + '08', borderRadius: borderRadius.md,
+    padding: spacing.md, borderWidth: 1, borderColor: colors.primary + '30',
+    marginBottom: spacing.xs,
+  },
+  rzpBadgeLeft:  { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  rzpBadgeTitle: { fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold, color: colors.textPrimary },
+  rzpBadgeSub:   { fontSize: typography.sizes.xs, color: colors.textTertiary, marginTop: 1 },
 
   // Razorpay modal
   rzpContainer: { flex: 1, backgroundColor: colors.background },
@@ -491,4 +599,12 @@ const styles = StyleSheet.create({
   rzpClose:       { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   rzpLoader:      { flex: 1, alignItems: 'center', justifyContent: 'center' },
   webview:        { flex: 1 },
+  protectionBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.success + '12', borderRadius: borderRadius.md,
+    padding: spacing.md, marginBottom: spacing.md,
+    borderWidth: 1, borderColor: colors.success + '30',
+  },
+  protectionTitle: { fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold, color: colors.success },
+  protectionSub:   { fontSize: 11, color: colors.success + 'cc', marginTop: 1 },
 });

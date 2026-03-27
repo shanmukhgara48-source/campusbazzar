@@ -7,8 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { fetchListing } from '../../services/listingService';
 import { HomeStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 import { mockListings } from '../../data/mockData';
@@ -34,23 +33,11 @@ export default function OfferScreen({ navigation, route }: Props) {
   const [message, setMessage]         = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Fetch listing (Firestore first, mock fallback)
   useEffect(() => {
-    const fetch = async () => {
-      try {
-        const snap = await getDoc(doc(db, 'listings', listingId));
-        if (snap.exists()) {
-          setListing({ id: snap.id, ...snap.data() } as Listing);
-        } else {
-          setListing(mockListings.find(l => l.id === listingId) ?? null);
-        }
-      } catch {
-        setListing(mockListings.find(l => l.id === listingId) ?? null);
-      } finally {
-        setFetchLoading(false);
-      }
-    };
-    fetch();
+    fetchListing(listingId)
+      .then(l => setListing(l as any))
+      .catch(() => setListing(mockListings.find(l => l.id === listingId) ?? null))
+      .finally(() => setFetchLoading(false));
   }, [listingId]);
 
   if (fetchLoading) {
@@ -115,7 +102,7 @@ export default function OfferScreen({ navigation, route }: Props) {
 
     setIsSubmitting(true);
     try {
-      await createOffer({
+      const offerId = await createOffer({
         listingId:    listing.id,
         listingTitle: listing.title,
         listingImage: listing.images?.[0] ?? '',
@@ -138,7 +125,10 @@ export default function OfferScreen({ navigation, route }: Props) {
           },
           listing.title,
         );
-        await sendOfferMessage(chatId, user.uid, amount, listing.id, listing.title);
+        await sendOfferMessage(
+          chatId, user.uid, amount, listing.id, listing.title,
+          offerId, user.uid, listing.sellerId,
+        );
       } catch (chatErr) {
         console.warn('[OfferScreen] chat message failed (non-fatal):', chatErr);
       }

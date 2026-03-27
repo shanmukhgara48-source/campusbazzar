@@ -1,138 +1,118 @@
-import {
-  collection, doc, addDoc, deleteDoc, getDoc, setDoc,
-  query, where, orderBy, onSnapshot, serverTimestamp,
-  runTransaction,
-  Unsubscribe,
-} from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { db } from './firebase';
+/**
+ * Listing service — Cloudflare Worker API (replaces Firestore).
+ * Preserves existing function signatures so screens need minimal changes.
+ */
+import { useEffect, useState, useCallback } from 'react';
+import { listingsApi, ApiListing } from './api';
 
-export type ListingStatus = 'active' | 'sold' | 'reserved';
+export type ListingStatus = 'active' | 'sold' | 'reserved' | 'hidden' | 'flagged';
 
-export interface FSListing {
-  id: string;
+// Re-export so screens can import FSListing from listingService
+export type FSListing = ApiListing;
+
+// ─── Async functions ──────────────────────────────────────────────────────────
+
+export async function fetchListings(params?: {
+  category?: string;
+  q?: string;
+  limit?: number;
+}): Promise<ApiListing[]> {
+  const { listings } = await listingsApi.list(params);
+  return listings;
+}
+
+export async function fetchListing(id: string): Promise<ApiListing | null> {
+  try {
+    const { listing } = await listingsApi.get(id);
+    return listing;
+  } catch {
+    return null;
+  }
+}
+
+export async function createListing(data: {
   title: string;
   description: string;
   price: number;
-  images: string[];
-  sellerId: string;
   category: string;
-  status: ListingStatus;
-  createdAt: unknown;
+  condition: string;
+  images: string[];
+  department?: string;
+  tags?: string[];
+}): Promise<string> {
+  const { listing } = await listingsApi.create(data);
+  return listing.id;
 }
 
-export async function addListing(data: Omit<FSListing, 'id' | 'createdAt'>): Promise<string> {
-  const ref = await addDoc(collection(db, 'listings'), { ...data, createdAt: serverTimestamp() });
-  return ref.id;
+export async function updateListing(id: string, data: Partial<ApiListing>): Promise<void> {
+  await listingsApi.update(id, data);
 }
 
-export async function getListing(id: string): Promise<FSListing | null> {
-  const snap = await getDoc(doc(db, 'listings', id));
-  return snap.exists() ? ({ id: snap.id, ...snap.data() } as FSListing) : null;
+export async function deleteListing(id: string): Promise<void> {
+  await listingsApi.delete(id);
 }
 
-/**
- * Atomically handle a purchase using a Firestore transaction:
- *   - quantity == 1  → delete the document entirely (clean feed)
- *   - quantity >  1  → decrement quantity; mark sold if it hits 0
- *   - no quantity field → treat as single-unit (mark sold)
- *
- * runTransaction retries automatically on contention, so two concurrent
- * buyers can never both succeed for the last unit.
- *
- * Throws if the listing is already sold or doesn't exist.
- */
-export async function handlePurchase(id: string): Promise<void> {
-  const ref = doc(db, 'listings', id);
-
-  await runTransaction(db, async tx => {
-    const snap = await tx.get(ref);
-
-    if (!snap.exists()) {
-      // Mock / already-deleted listing — silently succeed (non-blocking)
-      return;
-    }
-
-    const data = snap.data();
-
-    if (data.status === 'sold') {
-      throw new Error('This item has already been sold.');
-    }
-
-    const qty: number = typeof data.quantity === 'number' ? data.quantity : 1;
-
-    if (qty <= 1) {
-      // Single unit — remove the document so it disappears from the feed
-      tx.delete(ref);
-    } else {
-      const newQty = qty - 1;
-      tx.update(ref, {
-        quantity: newQty,
-        status:   newQty === 0 ? 'sold' : 'active',
-      });
-    }
-  });
+/** Mark listing as sold after successful payment */
+export async function handlePurchase(listingId: string): Promise<void> {
+  await listingsApi.update(listingId, { status: 'sold' } as Partial<ApiListing>);
 }
 
-/** @deprecated Use handlePurchase for atomic quantity management. */
-export async function markAsSold(id: string) {
-  await setDoc(doc(db, 'listings', id), { status: 'sold' }, { merge: true });
-}
+// ─── React hooks (polling replaces onSnapshot) ────────────────────────────────
 
-export async function deleteListing(id: string) {
-  await deleteDoc(doc(db, 'listings', id));
-}
-
-// ─── Real-time hooks ────────────────────────────────────────────────────────
-
-export function useListings(category?: string) {
-  const [listings, setListings] = useState<FSListing[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
-
-  useEffect(() => {
-    const constraints = [
-      where('status', '==', 'active'),
-      orderBy('createdAt', 'desc'),
-    ] as const;
-
-    const q = category
-      ? query(collection(db, 'listings'), where('category', '==', category), ...constraints)
-      : query(collection(db, 'listings'), ...constraints);
-
-    const unsub: Unsubscribe = onSnapshot(
-      q,
-      snap => {
-        setListings(snap.docs.map(d => ({ id: d.id, ...d.data() } as FSListing)));
-        setLoading(false);
-      },
-      err => {
-        setError(err.message);
-        setLoading(false);
-      },
-    );
-    return unsub;
-  }, [category]);
-
-  return { listings, loading, error };
-}
-
-export function useSellerListings(sellerId: string) {
-  const [listings, setListings] = useState<FSListing[]>([]);
+export function useListings(params?: { category?: string; q?: string }) {
+  const [listings, setListings] = useState<ApiListing[]>([]);
   const [loading, setLoading]   = useState(true);
 
-  useEffect(() => {
-    const q = query(
-      collection(db, 'listings'),
-      where('sellerId', '==', sellerId),
-      orderBy('createdAt', 'desc'),
-    );
-    const unsub = onSnapshot(q, snap => {
-      setListings(snap.docs.map(d => ({ id: d.id, ...d.data() } as FSListing)));
+  const load = useCallback(async () => {
+    try {
+      const { listings: data } = await listingsApi.list(params);
+      setListings(data);
+    } finally {
       setLoading(false);
-    });
-    return unsub;
+    }
+  }, [params?.category, params?.q]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return { listings, loading, refresh: load };
+}
+
+export function useSellerListings(sellerId: string | undefined) {
+  const [listings, setListings] = useState<ApiListing[]>([]);
+  const [loading, setLoading]   = useState(true);
+
+  const load = useCallback(async () => {
+    if (!sellerId) { setLoading(false); return; }
+    try {
+      const { listings: data } = await listingsApi.list({ sellerId });
+      setListings(data);
+    } catch {
+      setListings([]);
+    } finally {
+      setLoading(false);
+    }
   }, [sellerId]);
 
-  return { listings, loading };
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return { listings, loading, refresh: load };
+}
+
+export function useListing(listingId: string | undefined) {
+  const [listing, setListing] = useState<ApiListing | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!listingId) { setLoading(false); return; }
+    listingsApi.get(listingId)
+      .then(({ listing: l }) => setListing(l))
+      .catch(() => setListing(null))
+      .finally(() => setLoading(false));
+  }, [listingId]);
+
+  return { listing, loading };
 }

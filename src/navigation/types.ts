@@ -21,14 +21,16 @@ export type AuthStackParamList = {
 };
 
 export type HomeStackParamList = {
-  HomeMain:    undefined;
+  HomeMain:      undefined;
   ListingDetail: { listingId: string };
-  Offer:       { listingId: string };
-  Meetup:      { listingId: string };
-  Ratings:     { userId: string };
-  Transaction: { transactionId: string };
-  Wishlist:    undefined;
-  FirebaseChat: { chatId: string; otherUserId: string; otherUserName: string; listingTitle: string };
+  Offer:         { listingId: string };
+  Meetup:        { listingId: string; finalPrice?: number };
+  Ratings:       { userId: string };
+  Transaction:   { transactionId: string };
+  QRScanner:     { transactionId: string };
+  Wishlist:      undefined;
+  FirebaseChat:  { chatId: string; otherUserId: string; otherUserName: string; listingTitle: string; listingId?: string; sellerId?: string };
+  PublicProfile: { userId: string };
 };
 
 export type Chat = never; // satisfy TS in TransactionScreen navigate call
@@ -36,19 +38,20 @@ export type Chat = never; // satisfy TS in TransactionScreen navigate call
 export type MessagesStackParamList = {
   ConversationList: undefined;
   Chat: { conversationId: string; otherUserName: string; listingTitle: string };
-  FirebaseChat: { chatId: string; otherUserId: string; otherUserName: string; listingTitle: string };
+  FirebaseChat: { chatId: string; otherUserId: string; otherUserName: string; listingTitle: string; listingId?: string; sellerId?: string };
 };
 
 export type ProfileStackParamList = {
-  ProfileMain:    undefined;
-  EditProfile:    undefined;
-  SellerDashboard: undefined;
-  AdminPanel:     undefined;
-  SavedItems:     undefined;
-  Settings:       undefined;
-  IDVerification: undefined;
-  Terms:          undefined;
-  ProhibitedItems: undefined;
+  ProfileMain:        undefined;
+  EditProfile:        undefined;
+  SellerDashboard:    undefined;
+  AdminPanel:         undefined;
+  SavedItems:         undefined;
+  Settings:           undefined;
+  IDVerification:     undefined;
+  Terms:              undefined;
+  ProhibitedItems:    undefined;
+  TransactionHistory: undefined;
 };
 
 export type MainTabParamList = {

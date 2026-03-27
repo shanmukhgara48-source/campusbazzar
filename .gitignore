@@ -4,3 +4,5 @@ node_modules/
 *.log
 dist/
 build/
+google-services.json
+GoogleService-Info.plist

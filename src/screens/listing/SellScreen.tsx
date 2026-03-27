@@ -12,15 +12,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { auth } from '../../services/firebase';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 import { ItemCategory, ItemCondition } from '../../types';
 import { mockListings } from '../../data/mockData';
 import { useWatcher } from '../../context/WatcherContext';
 import { useAuth } from '../../context/AuthContext';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { createListing } from '../../services/listingService';
+import { uploadImagesToR2 } from '../../services/r2Service';
 
 type PriceStatus = 'great' | 'fair' | 'high' | null;
 
@@ -48,75 +46,6 @@ const conditionDesc: Record<ItemCondition, string> = {
   'Poor': 'Heavy wear or minor defects',
 };
 
-// Must match storageBucket in firebaseConfig (firebase.ts)
-const STORAGE_BUCKET = 'campusbazaar-a222f.firebasestorage.app';
-
-/**
- * Expo-compatible image upload.
- *
- * Upload chain that avoids every known React Native incompatibility:
- *
- *  ✗ uploadBytes(blob)    — Firebase SDK wraps blob in new Blob([blob])
- *                           internally, hitting the ArrayBufferView error
- *  ✗ uploadString(base64) — Firebase SDK decodes base64 → Uint8Array →
- *                           new Blob([uint8array]) → same ArrayBufferView error
- *  ✗ FileSystem.uploadAsync / BINARY_CONTENT — FileSystemUploadType is
- *                           undefined in Expo Go (module not yet native-loaded)
- *
- *  ✓ fetch(localUri).blob() → fetch POST to Firebase Storage REST API
- *    React Native's fetch reads local file:// URIs natively and sends the
- *    blob body via the OS HTTP stack — no JS Blob constructor involved.
- */
-async function uploadImages(uris: string[], userId: string): Promise<string[]> {
-  const token = await auth.currentUser?.getIdToken();
-  if (!token) throw new Error('User not authenticated');
-
-  return Promise.all(uris.map(async (uri, i) => {
-    console.log(`[Upload] uri[${i}]:`, uri);
-
-    // 1. Compress → fresh local file:// URI (smaller payload, consistent MIME)
-    const imgRef     = await ImageManipulator.manipulate(uri)
-      .resize({ width: 1080 })
-      .renderAsync();
-    const compressed = await imgRef.saveAsync({ compress: 0.8, format: SaveFormat.JPEG });
-    console.log(`[Upload] compressed[${i}]:`, compressed.uri);
-
-    // 2. Read local URI → Blob via React Native's native fetch
-    const localResponse = await fetch(compressed.uri);
-    const blob          = await localResponse.blob();
-    console.log(`[Upload] blob[${i}]: size=${blob.size} type=${blob.type}`);
-    if (!blob || blob.size === 0) throw new Error(`Empty blob for image ${i}`);
-
-    // 3. POST blob directly to Firebase Storage REST API
-    //    Plain fetch POST never touches the Blob constructor internally —
-    //    React Native pipes the blob body through the OS HTTP layer.
-    const path        = `listings/${userId}/${Date.now()}_${i}.jpg`;
-    const encodedPath = encodeURIComponent(path);
-    const uploadUrl   = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o` +
-                        `?uploadType=media&name=${encodedPath}`;
-
-    const uploadRes = await fetch(uploadUrl, {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'image/jpeg',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: blob,
-    });
-
-    const body = await uploadRes.text();
-    console.log(`[Upload] response[${i}]: status=${uploadRes.status}`, body.slice(0, 300));
-    if (!uploadRes.ok) throw new Error(`Upload failed (${uploadRes.status}): ${body}`);
-
-    // 4. Build permanent download URL from the token in the REST response
-    const { downloadTokens } = JSON.parse(body) as { downloadTokens: string };
-    const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o` +
-                        `/${encodedPath}?alt=media&token=${downloadTokens}`;
-
-    console.log(`[Upload] url[${i}]:`, downloadUrl);
-    return downloadUrl;
-  }));
-}
 
 export default function SellScreen() {
   const { checkListing } = useWatcher();
@@ -171,22 +100,16 @@ export default function SellScreen() {
     try {
       let uploadedImages: string[] = [];
       if (images.length > 0) {
-        uploadedImages = await uploadImages(images, user.uid);
+        uploadedImages = await uploadImagesToR2(images, 'listings');
       }
 
-      await addDoc(collection(db, 'listings'), {
-        title:         title.trim(),
-        description:   description.trim(),
-        price:         Number(price),
-        originalPrice: originalPrice ? Number(originalPrice) : null,
-        category,
-        condition,
-        images:        uploadedImages,
-        sellerId:      user.uid,
-        sellerName:    user.name || user.email || '',
-        status:        'active',
-        views:         0,
-        createdAt:     serverTimestamp(),
+      await createListing({
+        title:       title.trim(),
+        description: description.trim(),
+        price:       Number(price),
+        category:    category!,
+        condition:   condition!,
+        images:      uploadedImages,
       });
       checkListing(title.trim());
       Alert.alert('Success!', 'Your listing has been posted.', [{

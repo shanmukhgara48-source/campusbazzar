@@ -1,83 +1,64 @@
-import {
-  collection, doc, addDoc, updateDoc, writeBatch,
-  query, where, orderBy, onSnapshot, serverTimestamp, Unsubscribe,
-} from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { db } from './firebase';
+/**
+ * Notifications service — Cloudflare Worker API (replaces Firestore).
+ */
+import { useEffect, useState, useCallback } from 'react';
+import { notificationsApi, ApiNotification } from './api';
 
-// Firestore path: notifications/{notificationId}
-
-export type FSNotifType =
-  | 'message'
-  | 'offer'
-  | 'review'
-  | 'listing_view'
-  | 'sale'
-  | 'wishlist_match'
-  | 'system';
-
-export interface FSNotification {
-  id: string;
-  userId: string;
-  type: FSNotifType;
-  title: string;
-  body: string;
-  isRead: boolean;
-  createdAt: unknown;
-  data?: Record<string, string>;
-}
+export type { ApiNotification as FSNotification };
 
 export async function createNotification(
   userId: string,
-  type: FSNotifType,
+  type: string,
   title: string,
   body: string,
-  data?: Record<string, string>,
+  data?: Record<string, unknown>,
 ): Promise<void> {
-  await addDoc(collection(db, 'notifications'), {
-    userId,
-    type,
-    title,
-    body,
-    isRead: false,
-    createdAt: serverTimestamp(),
-    data: data ?? {},
-  });
+  // Fire-and-forget — non-critical if it fails
+  try {
+    const workerUrl = process.env.EXPO_PUBLIC_UPLOAD_WORKER_URL ?? '';
+    await fetch(`${workerUrl}/notifications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, type, title, body, data }),
+    });
+  } catch (e) {
+    console.warn('[notifications] create non-fatal:', e);
+  }
 }
 
-export async function markNotificationRead(notifId: string): Promise<void> {
-  await updateDoc(doc(db, 'notifications', notifId), { isRead: true });
+export async function markNotificationRead(id: string): Promise<void> {
+  await notificationsApi.markRead(id);
 }
 
-export async function markAllNotificationsRead(unreadIds: string[]): Promise<void> {
-  if (unreadIds.length === 0) return;
-  const batch = writeBatch(db);
-  unreadIds.forEach(id => batch.update(doc(db, 'notifications', id), { isRead: true }));
-  await batch.commit();
+/** Mark every id in the provided array as read. Fires requests concurrently. */
+export async function markAllNotificationsRead(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  await Promise.all(ids.map(id => notificationsApi.markRead(id)));
 }
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useNotifications(userId: string | undefined) {
-  const [notifications, setNotifications] = useState<FSNotification[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState<ApiNotification[]>([]);
+  const [loading, setLoading]             = useState(true);
 
-  useEffect(() => {
-    if (!userId) { setLoading(false); return; }
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc'),
-    );
-    const unsub: Unsubscribe = onSnapshot(
-      q,
-      snap => {
-        setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() } as FSNotification)));
-        setLoading(false);
-      },
-      () => { setLoading(false); },
-    );
-    return unsub;
+  const load = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const { notifications: data } = await notificationsApi.list(userId);
+      setNotifications(data);
+    } finally {
+      setLoading(false);
+    }
   }, [userId]);
 
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 15_000); // poll every 15s
+    return () => clearInterval(timer);
+  }, [load]);
+
   const unreadCount = notifications.filter(n => !n.isRead).length;
-  return { notifications, unreadCount, loading };
+
+  return { notifications, loading, unreadCount, refresh: load };
 }

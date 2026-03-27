@@ -4,8 +4,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { MainTabParamList, HomeStackParamList, MessagesStackParamList, ProfileStackParamList } from './types';
-import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
+import { colors } from '../theme';
 import { useUserChats } from '../services/chatService';
 import { useNotifications } from '../services/notificationsService';
 
@@ -15,6 +15,7 @@ import OfferScreen from '../screens/offers/OfferScreen';
 import MeetupScreen from '../screens/meetup/MeetupScreen';
 import RatingsScreen from '../screens/ratings/RatingsScreen';
 import TransactionScreen from '../screens/transaction/TransactionScreen';
+import QRScannerScreen   from '../screens/transaction/QRScannerScreen';
 import WishlistScreen from '../screens/wishlist/WishlistScreen';
 
 import MessagesScreen from '../screens/messages/MessagesScreen';
@@ -25,6 +26,8 @@ import SellScreen from '../screens/listing/SellScreen';
 import NotificationsScreen from '../screens/notifications/NotificationsScreen';
 
 import ProfileScreen from '../screens/profile/ProfileScreen';
+import EditProfileScreen from '../screens/profile/EditProfileScreen';
+import PublicProfileScreen from '../screens/profile/PublicProfileScreen';
 import SavedItemsScreen from '../screens/profile/SavedItemsScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import SellerDashboardScreen from '../screens/dashboard/SellerDashboardScreen';
@@ -32,6 +35,7 @@ import AdminPanelScreen from '../screens/admin/AdminPanelScreen';
 import IDVerificationScreen from '../screens/verification/IDVerificationScreen';
 import TermsScreen from '../screens/legal/TermsScreen';
 import ProhibitedItemsScreen from '../screens/legal/ProhibitedItemsScreen';
+import TransactionHistoryScreen from '../screens/transaction/TransactionHistoryScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
@@ -47,8 +51,10 @@ function HomeStackNavigator() {
       <HomeStack.Screen name="Meetup"        component={MeetupScreen} />
       <HomeStack.Screen name="Ratings"       component={RatingsScreen} />
       <HomeStack.Screen name="Transaction"   component={TransactionScreen} />
+      <HomeStack.Screen name="QRScanner"     component={QRScannerScreen} />
       <HomeStack.Screen name="Wishlist"      component={WishlistScreen} />
       <HomeStack.Screen name="FirebaseChat"  component={FirebaseChatScreen} />
+      <HomeStack.Screen name="PublicProfile" component={PublicProfileScreen} />
     </HomeStack.Navigator>
   );
 }
@@ -66,14 +72,16 @@ function MessagesStackNavigator() {
 function ProfileStackNavigator() {
   return (
     <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
-      <ProfileStack.Screen name="ProfileMain"     component={ProfileScreen} />
-      <ProfileStack.Screen name="SavedItems"      component={SavedItemsScreen} />
-      <ProfileStack.Screen name="Settings"        component={SettingsScreen} />
-      <ProfileStack.Screen name="SellerDashboard" component={SellerDashboardScreen} />
-      <ProfileStack.Screen name="AdminPanel"      component={AdminPanelScreen} />
-      <ProfileStack.Screen name="IDVerification"  component={IDVerificationScreen} />
-      <ProfileStack.Screen name="Terms"           component={TermsScreen} />
-      <ProfileStack.Screen name="ProhibitedItems" component={ProhibitedItemsScreen} />
+      <ProfileStack.Screen name="ProfileMain"        component={ProfileScreen} />
+      <ProfileStack.Screen name="EditProfile"        component={EditProfileScreen} />
+      <ProfileStack.Screen name="SavedItems"         component={SavedItemsScreen} />
+      <ProfileStack.Screen name="Settings"           component={SettingsScreen} />
+      <ProfileStack.Screen name="SellerDashboard"    component={SellerDashboardScreen} />
+      <ProfileStack.Screen name="AdminPanel"         component={AdminPanelScreen} />
+      <ProfileStack.Screen name="IDVerification"     component={IDVerificationScreen} />
+      <ProfileStack.Screen name="Terms"              component={TermsScreen} />
+      <ProfileStack.Screen name="ProhibitedItems"    component={ProhibitedItemsScreen} />
+      <ProfileStack.Screen name="TransactionHistory" component={TransactionHistoryScreen} />
     </ProfileStack.Navigator>
   );
 }
@@ -87,7 +95,14 @@ export default function MainNavigator() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: {
+          backgroundColor: '#ffffff',
+          borderTopColor: colors.border,
+          borderTopWidth: 1,
+          paddingBottom: 4,
+          paddingTop: 6,
+          height: 62,
+        },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textTertiary,
         tabBarLabelStyle: styles.tabLabel,
@@ -102,8 +117,8 @@ export default function MainNavigator() {
           const [active, inactive] = icons[route.name] || ['ellipse', 'ellipse-outline'];
           if (route.name === 'Sell') {
             return (
-              <View style={styles.sellIcon}>
-                <Ionicons name="add" size={28} color="#fff" />
+              <View style={[styles.sellIcon, { backgroundColor: colors.primary, shadowColor: colors.primary }]}>
+                <Ionicons name="add" size={28} color={colors.textInverse} />
               </View>
             );
           }
@@ -129,14 +144,6 @@ export default function MainNavigator() {
 }
 
 const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: '#fff',
-    borderTopColor: '#e0ddd6',
-    borderTopWidth: 1,
-    paddingBottom: 4,
-    paddingTop: 6,
-    height: 62,
-  },
   tabLabel: {
     fontSize: 11,
     fontWeight: '500',
@@ -145,11 +152,9 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
-    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,

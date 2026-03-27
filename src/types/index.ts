@@ -59,25 +59,28 @@ export interface User {
 }
 
 export interface Listing {
-  id:             string;
-  title:          string;
-  description:    string;
-  price:          number;
-  originalPrice?: number;
-  category:       ItemCategory;
-  condition:      ItemCondition;
-  images:         string[];
-  sellerId:       string;
-  seller:         User;
-  department:     string;
-  status:         ListingStatus;
-  createdAt:      string;
-  views:          number;
-  isFeatured?:    boolean;
-  tags?:          string[];
-  isFavourited?:  boolean;
-  flagReason?:    string;
-  reservedFor?:   string;
+  id:               string;
+  title:            string;
+  description:      string;
+  price:            number;
+  originalPrice?:   number;
+  /** Negotiated price written when a seller accepts an offer. Use this for checkout. */
+  finalPrice?:      number;
+  acceptedOfferId?: string;
+  category:         ItemCategory;
+  condition:        ItemCondition;
+  images:           string[];
+  sellerId:         string;
+  seller:           User;
+  department:       string;
+  status:           ListingStatus;
+  createdAt:        string;
+  views:            number;
+  isFeatured?:      boolean;
+  tags?:            string[];
+  isFavourited?:    boolean;
+  flagReason?:      string;
+  reservedFor?:     string;
 }
 
 export interface Message {

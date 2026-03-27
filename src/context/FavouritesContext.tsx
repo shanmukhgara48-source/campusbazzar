@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, useMemo, ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { useSavedItems, saveItem, unsaveItem } from '../services/savedItemsService';
 
@@ -18,7 +18,11 @@ const FavouritesContext = createContext<FavouritesContextValue>({
 
 export function FavouritesProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const { savedIds, loading } = useSavedItems(user?.uid);
+  // useSavedItems returns { savedItems: string[], loading }
+  const { savedItems, loading } = useSavedItems(user?.uid);
+
+  // Convert the string array to a Set so consumers can call .has() and .size
+  const savedIds = useMemo(() => new Set<string>(savedItems ?? []), [savedItems]);
 
   const isFavourite = (id: string) => savedIds.has(id);
 
