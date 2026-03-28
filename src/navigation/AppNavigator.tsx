@@ -29,7 +29,7 @@ export default function AppNavigator() {
   // Register push token when user logs in
   useEffect(() => {
     if (isAuthenticated && user?.uid) {
-      registerForPushNotifications(user.uid).catch(console.warn);
+      registerForPushNotifications().catch(console.warn);
     }
   }, [isAuthenticated, user?.uid]);
 

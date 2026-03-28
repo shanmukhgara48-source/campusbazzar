@@ -11,6 +11,7 @@ export type AuthStackParamList = {
     rollNumber: string;
     collegeName: string;
     collegeDomain: string;
+    password: string;
   };
   ProfileSetup: {
     email: string;
@@ -23,8 +24,10 @@ export type AuthStackParamList = {
 export type HomeStackParamList = {
   HomeMain:      undefined;
   ListingDetail: { listingId: string };
+  Checkout:      { listingId: string; dealId?: string };
+  OrderTracking: { transactionId: string };
   Offer:         { listingId: string };
-  Meetup:        { listingId: string; finalPrice?: number };
+  Meetup:        { transactionId: string };
   Ratings:       { userId: string };
   Transaction:   { transactionId: string };
   QRScanner:     { transactionId: string };
@@ -45,7 +48,7 @@ export type ProfileStackParamList = {
   ProfileMain:        undefined;
   EditProfile:        undefined;
   SellerDashboard:    undefined;
-  AdminPanel:         undefined;
+  Orders:             undefined;
   SavedItems:         undefined;
   Settings:           undefined;
   IDVerification:     undefined;

@@ -134,6 +134,7 @@ export default function MessagesScreen({ navigation }: Props) {
                   otherUserId:   item.otherUserId,
                   otherUserName: item.otherUserName,
                   listingTitle:  item.listingTitle ?? '',
+                  listingId:     item.listingId,   // required for offer acceptance
                 })
               }
             />

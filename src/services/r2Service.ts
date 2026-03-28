@@ -16,7 +16,7 @@
  */
 
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { auth } from './firebase';
+import { getToken } from './api';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -64,8 +64,8 @@ export async function uploadImageToR2(
     format:   SaveFormat.JPEG,
   });
 
-  // ── Step 2: get Firebase ID token ───────────────────────────────────────────
-  const token = await auth.currentUser?.getIdToken();
+  // ── Step 2: get JWT token ────────────────────────────────────────────────────
+  const token = await getToken();
   if (!token) throw new Error('You must be signed in to upload images.');
 
   // ── Step 3: request presigned PUT URL from Worker ───────────────────────────

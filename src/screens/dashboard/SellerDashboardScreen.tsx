@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView,
+  View, Text, StyleSheet, ScrollView, Modal,
   TouchableOpacity, Image, Alert, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +12,7 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme'
 import { useAuth } from '../../context/AuthContext';
 import { useSellerOffers, acceptOffer, rejectOffer, FSOffer } from '../../services/offerService';
 import { useSellerListings, FSListing } from '../../services/listingService';
+import { setMeetup } from '../../services/transactionService';
 
 type Props = {
   navigation: NativeStackNavigationProp<ProfileStackParamList, 'SellerDashboard'>;
@@ -23,13 +24,22 @@ export default function SellerDashboardScreen({ navigation }: Props) {
   const [activeTab, setActiveTab] = useState<'overview' | 'listings' | 'offers'>('overview');
   const [actionLoading, setActionLoading] = useState<string | null>(null); // offerId being actioned
 
+  // ── Set-meetup modal state ─────────────────────────────────────────────────
+  const [meetupTxId,       setMeetupTxId]       = useState<string | null>(null);
+  const [meetupModalVisible, setMeetupModalVisible] = useState(false);
+  const [meetupLocation,   setMeetupLocation]   = useState<string | null>(null);
+  const [meetupDate,       setMeetupDate]        = useState<string | null>(null);
+  const [meetupTime,       setMeetupTime]        = useState<string | null>(null);
+  const [meetupSubmitting, setMeetupSubmitting]  = useState(false);
+
   const { offers: myOffers, loading: offersLoading } = useSellerOffers(user?.uid);
   const { listings: myListings, loading: listingsLoading } = useSellerListings(user?.uid ?? '');
 
   const pendingOffers  = myOffers.filter(o => o.status === 'pending');
   const activeListings = myListings.filter(l => l.status === 'active');
   const soldListings   = myListings.filter(l => l.status === 'sold');
-  const totalRevenue   = soldListings.reduce((sum, l) => sum + l.price, 0);
+  // Use finalPrice (negotiated deal price) when available; fall back to listing.price
+  const totalRevenue   = soldListings.reduce((sum, l) => sum + (l.finalPrice ?? l.price), 0);
 
   const TABS = ['overview', 'listings', 'offers'] as const;
 
@@ -37,7 +47,7 @@ export default function SellerDashboardScreen({ navigation }: Props) {
   const handleAccept = (offer: FSOffer) => {
     Alert.alert(
       'Accept Offer',
-      `Accept ₹${offer.offerPrice.toLocaleString('en-IN')} from ${offer.buyerName} for "${offer.listingTitle}"?\n\nThis will mark the item as sold and reject all other pending offers.`,
+      `Accept ₹${(offer.offerPrice ?? offer.amount).toLocaleString('en-IN')} from ${offer.buyerName} for "${offer.listingTitle}"?\n\nThis will mark the item as sold and reject all other pending offers.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -45,12 +55,16 @@ export default function SellerDashboardScreen({ navigation }: Props) {
           onPress: async () => {
             setActionLoading(offer.id);
             try {
-              await acceptOffer(offer);
-              Alert.alert(
-                'Offer Accepted!',
-                `${offer.buyerName} has been notified. The item is now reserved for them at ₹${offer.offerPrice.toLocaleString('en-IN')}.`,
-                [{ text: 'OK' }],
-              );
+              const txId = await acceptOffer(offer);
+              if (txId) {
+                setMeetupTxId(txId);
+                setMeetupLocation(null);
+                setMeetupDate(null);
+                setMeetupTime(null);
+                setMeetupModalVisible(true);
+              } else {
+                Alert.alert('Offer Accepted!', `${offer.buyerName} has been notified.`);
+              }
             } catch (e: any) {
               Alert.alert('Error', e?.message ?? 'Could not accept offer. Please try again.');
             } finally {
@@ -66,7 +80,7 @@ export default function SellerDashboardScreen({ navigation }: Props) {
   const handleReject = (offer: FSOffer) => {
     Alert.alert(
       'Decline Offer',
-      `Decline ₹${offer.offerPrice.toLocaleString('en-IN')} from ${offer.buyerName}?`,
+      `Decline ₹${(offer.offerPrice ?? offer.amount).toLocaleString('en-IN')} from ${offer.buyerName}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -87,8 +101,99 @@ export default function SellerDashboardScreen({ navigation }: Props) {
     );
   };
 
+  const MEETUP_LOCATIONS = ['Library', 'Canteen', 'Admin Gate', 'Main Block', 'Hostel Block'];
+  const MEETUP_TIMES     = ['9:00 AM', '11:00 AM', '1:00 PM', '3:00 PM', '5:00 PM', '7:00 PM'];
+  const MEETUP_DATES     = (() => {
+    const dates: string[] = [];
+    for (let i = 1; i <= 3; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      dates.push(d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }));
+    }
+    return dates;
+  })();
+
+  const handleSetMeetup = async () => {
+    if (!meetupTxId || !meetupLocation || !meetupDate || !meetupTime) return;
+    setMeetupSubmitting(true);
+    try {
+      await setMeetup(meetupTxId, meetupLocation, `${meetupDate}, ${meetupTime}`);
+      setMeetupModalVisible(false);
+      Alert.alert('Meetup Set!', 'The buyer has been notified of the meetup details.');
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not set meetup. Please try again.');
+    } finally {
+      setMeetupSubmitting(false);
+    }
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Set Meetup Modal */}
+      <Modal visible={meetupModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Set Meetup Details</Text>
+            <Text style={styles.modalSubtitle}>Let the buyer know where and when to meet</Text>
+
+            <Text style={styles.modalLabel}>Location</Text>
+            <View style={styles.optionGrid}>
+              {MEETUP_LOCATIONS.map(loc => (
+                <TouchableOpacity
+                  key={loc}
+                  style={[styles.optionChip, meetupLocation === loc && styles.optionChipActive]}
+                  onPress={() => setMeetupLocation(loc)}
+                >
+                  <Text style={[styles.optionChipText, meetupLocation === loc && styles.optionChipTextActive]}>{loc}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.modalLabel}>Date</Text>
+            <View style={styles.optionRow}>
+              {MEETUP_DATES.map(date => (
+                <TouchableOpacity
+                  key={date}
+                  style={[styles.optionChip, meetupDate === date && styles.optionChipActive]}
+                  onPress={() => setMeetupDate(date)}
+                >
+                  <Text style={[styles.optionChipText, meetupDate === date && styles.optionChipTextActive]}>{date}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.modalLabel}>Time</Text>
+            <View style={styles.optionGrid}>
+              {MEETUP_TIMES.map(t => (
+                <TouchableOpacity
+                  key={t}
+                  style={[styles.optionChip, meetupTime === t && styles.optionChipActive]}
+                  onPress={() => setMeetupTime(t)}
+                >
+                  <Text style={[styles.optionChipText, meetupTime === t && styles.optionChipTextActive]}>{t}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.modalSubmitBtn, (!meetupLocation || !meetupDate || !meetupTime || meetupSubmitting) && { opacity: 0.5 }]}
+              disabled={!meetupLocation || !meetupDate || !meetupTime || meetupSubmitting}
+              onPress={handleSetMeetup}
+              activeOpacity={0.85}
+            >
+              {meetupSubmitting
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.modalSubmitText}>Set Meetup</Text>
+              }
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setMeetupModalVisible(false)}>
+              <Text style={styles.modalCancelText}>Set Later</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -263,7 +368,7 @@ function OfferRow({
     rejected: colors.error,
   };
   const statusColor = statusColors[offer.status] ?? colors.textTertiary;
-  const discount    = Math.round(((offer.askingPrice - offer.offerPrice) / offer.askingPrice) * 100);
+  const offerAmt    = offer.offerPrice ?? offer.amount;
 
   return (
     <View style={styles.offerCard}>
@@ -282,15 +387,8 @@ function OfferRow({
         <View style={styles.offerPriceCol}>
           <Text style={styles.offerPriceLabel}>Offer</Text>
           <Text style={[styles.offerPriceValue, { color: colors.primary }]}>
-            ₹{offer.offerPrice.toLocaleString('en-IN')}
+            ₹{offerAmt.toLocaleString('en-IN')}
           </Text>
-          {discount > 0 && (
-            <Text style={styles.discountText}>{discount}% below ask</Text>
-          )}
-        </View>
-        <View style={styles.offerPriceCol}>
-          <Text style={styles.offerPriceLabel}>Asking</Text>
-          <Text style={styles.offerPriceValue}>₹{offer.askingPrice.toLocaleString('en-IN')}</Text>
         </View>
         <View style={styles.offerPriceCol}>
           <Text style={styles.offerPriceLabel}>From</Text>
@@ -412,4 +510,31 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.error + '40',
   },
   declineBtnText: { fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold, color: colors.error },
+
+  // Set Meetup Modal
+  modalOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalSheet: {
+    backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: spacing.xl, paddingBottom: spacing.xxxl,
+  },
+  modalTitle:     { fontSize: typography.sizes.xl, fontWeight: typography.weights.bold, color: colors.textPrimary, marginBottom: spacing.xs },
+  modalSubtitle:  { fontSize: typography.sizes.sm, color: colors.textSecondary, marginBottom: spacing.xl },
+  modalLabel:     { fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold, color: colors.textSecondary, marginBottom: spacing.sm, marginTop: spacing.md },
+  optionGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  optionRow:      { flexDirection: 'row', gap: spacing.sm },
+  optionChip: {
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    borderRadius: borderRadius.full, borderWidth: 1.5, borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  optionChipActive:     { borderColor: colors.primary, backgroundColor: colors.primary + '15' },
+  optionChipText:       { fontSize: typography.sizes.sm, color: colors.textSecondary, fontWeight: typography.weights.medium },
+  optionChipTextActive: { color: colors.primary, fontWeight: typography.weights.semibold },
+  modalSubmitBtn: {
+    backgroundColor: colors.primary, borderRadius: borderRadius.md,
+    paddingVertical: spacing.md + 2, alignItems: 'center', marginTop: spacing.xl,
+  },
+  modalSubmitText: { color: '#fff', fontSize: typography.sizes.md, fontWeight: typography.weights.semibold },
+  modalCancelBtn:  { alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
+  modalCancelText: { color: colors.textTertiary, fontSize: typography.sizes.sm },
 });

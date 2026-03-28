@@ -39,6 +39,10 @@ export default function FirebaseChatScreen({ navigation, route }: Props) {
   // rolled back if the API call fails. Keyed by message id.
   const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({});
 
+  // Maps message id → accepted offer id so we can pass dealId when navigating
+  // to checkout. Populated by the offer-status sync effect below.
+  const acceptedOfferIdsRef = useRef<Record<string, string>>({});
+
   // Counter offer modal state
   const [counterModal, setCounterModal] = useState<{
     visible: boolean;
@@ -54,7 +58,7 @@ export default function FirebaseChatScreen({ navigation, route }: Props) {
   const isSeller = !!sellerId && user?.uid === sellerId;
   const isBuyer  = !!sellerId && user?.uid !== sellerId;
 
-  const { messages, loading, error } = useMessages(chatId);
+  const { messages, loading } = useMessages(chatId);
   const isOtherTyping = useIsOtherTyping(chatId, user?.uid ?? '');
   const lastMsg       = messages[messages.length - 1];
   const isSeen        = useLastMessageSeen(chatId, user?.uid ?? '', lastMsg);
@@ -101,6 +105,11 @@ export default function FirebaseChatScreen({ navigation, route }: Props) {
             if (normalized && normalized !== current) {
               next[msg.id] = normalized;
               changed = true;
+            }
+
+            // Store the offer id so the checkout button can pass dealId
+            if (match.status === 'accepted' && match.id) {
+              acceptedOfferIdsRef.current[msg.id] = match.id;
             }
           });
 
@@ -182,15 +191,24 @@ export default function FirebaseChatScreen({ navigation, route }: Props) {
     if (item.offerId) return item.offerId;
 
     const lid = listingId ?? item.listingId;
-    if (!lid) return null;
+    if (!lid) {
+      console.warn('[Chat] resolveOfferId: listingId missing — cannot look up offer');
+      return null;
+    }
 
     try {
       const { offers } = await offersApi.byListing(lid);
+      // Match by amount + pending status + buyer (item.senderId = buyer for original offers).
+      // Filtering by buyerId prevents collisions when multiple buyers offer the same amount.
       const match = offers.find(
-        o => o.amount === item.offerPrice && o.status === 'pending',
+        o => o.amount === item.offerPrice &&
+             o.status === 'pending' &&
+             (item.senderId ? o.buyerId === item.senderId : true),
       );
+      if (!match) console.warn('[Chat] resolveOfferId: no matching pending offer found', { offerPrice: item.offerPrice, senderId: item.senderId });
       return match?.id ?? null;
-    } catch {
+    } catch (e) {
+      console.warn('[Chat] resolveOfferId error:', e);
       return null;
     }
   }, [listingId]);
@@ -214,12 +232,15 @@ export default function FirebaseChatScreen({ navigation, route }: Props) {
             try {
               // Best-effort backend update: look up the real offer id
               const oid = await resolveOfferId(item);
+              let txId: string | undefined;
               if (oid) {
-                await acceptOffer(oid);
+                txId = await acceptOffer(oid);
+                // Record the accepted offer id so checkout navigation can pass dealId
+                acceptedOfferIdsRef.current[item.id] = oid;
               }
               await sendSystemMessage(
                 chatId,
-                `Offer accepted for ₹${item.offerPrice?.toLocaleString('en-IN')} — buyer can now proceed to checkout.`,
+                `Deal accepted at ₹${item.offerPrice?.toLocaleString('en-IN')} — buyer can now proceed to checkout.`,
               );
             } catch (e: any) {
               // Rollback optimistic update on failure
@@ -461,38 +482,49 @@ export default function FirebaseChatScreen({ navigation, route }: Props) {
             {/* ── Proceed to Checkout — buyer only, offer accepted ── */}
             {showCheckout && (() => {
               const resolvedListingId = listingId ?? item.listingId;
-              if (!resolvedListingId) return null; // can't checkout without a listing
+              if (!resolvedListingId) return null;
 
               const finalPrice = item.offerPrice;
               return (
-                <TouchableOpacity
-                  style={[s.checkoutBtn, checkingOut && { opacity: 0.7 }]}
-                  disabled={checkingOut}
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    if (checkingOut) return;
-                    setCheckingOut(true);
-                    // brief delay lets the button animate before navigating
-                    setTimeout(() => {
-                      navigation.navigate('Meetup', {
-                        listingId: resolvedListingId,
-                        finalPrice,
-                      });
-                      setCheckingOut(false);
-                    }, 150);
-                  }}
-                >
-                  {checkingOut ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Ionicons name="cart" size={15} color="#fff" />
-                  )}
-                  <Text style={s.checkoutBtnText}>
-                    {checkingOut
-                      ? 'Opening...'
-                      : `Proceed to Checkout · ₹${finalPrice?.toLocaleString('en-IN') ?? '—'}`}
-                  </Text>
-                </TouchableOpacity>
+                <>
+                  {/* Deal accepted confirmation strip */}
+                  <View style={s.dealAcceptedStrip}>
+                    <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+                    <Text style={s.dealAcceptedText}>
+                      Deal accepted at ₹{finalPrice?.toLocaleString('en-IN') ?? '—'}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[s.checkoutBtn, checkingOut && { opacity: 0.7 }]}
+                    disabled={checkingOut}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      if (checkingOut) return;
+                      setCheckingOut(true);
+                      setTimeout(() => {
+                        // Pass dealId so checkout can resolve the negotiated
+                        // price without scanning all offers.
+                        navigation.navigate('Checkout', {
+                          listingId: resolvedListingId,
+                          dealId:    acceptedOfferIdsRef.current[item.id],
+                        });
+                        setCheckingOut(false);
+                      }, 150);
+                    }}
+                  >
+                    {checkingOut ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="cart" size={15} color="#fff" />
+                    )}
+                    <Text style={s.checkoutBtnText}>
+                      {checkingOut
+                        ? 'Opening...'
+                        : `Proceed to Checkout · ₹${finalPrice?.toLocaleString('en-IN') ?? '—'}`}
+                    </Text>
+                  </TouchableOpacity>
+                </>
               );
             })()}
 
@@ -517,7 +549,7 @@ export default function FirebaseChatScreen({ navigation, route }: Props) {
           </Text>
           <View style={s.metaRow}>
             <Text style={[s.time, { color: isMine ? 'rgba(255,255,255,0.7)' : colors.textTertiary }]}>
-              {formatTime(item.timestamp)}
+              {formatTime(item.createdAt)}
             </Text>
             {showSeen && <SeenTick />}
           </View>
@@ -548,10 +580,6 @@ export default function FirebaseChatScreen({ navigation, route }: Props) {
       {loading ? (
         <View style={s.center}>
           <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : error ? (
-        <View style={s.center}>
-          <Text style={[s.emptyText, { color: colors.textTertiary }]}>Could not load messages.</Text>
         </View>
       ) : (
         <FlatList
@@ -709,7 +737,9 @@ const s = StyleSheet.create({
   actionBtnOutline: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: borderRadius.md, paddingVertical: spacing.sm, borderWidth: 1 },
   actionBtnText:    { fontSize: 12, fontWeight: typography.weights.semibold, color: '#fff' },
   statusDot:        { width: 6, height: 6, borderRadius: 3 },
-  checkoutBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: borderRadius.md, paddingVertical: spacing.md, marginTop: spacing.sm, backgroundColor: '#16a34a' },
+  dealAcceptedStrip:{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.success + '15', borderRadius: borderRadius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5, marginTop: spacing.sm },
+  dealAcceptedText: { fontSize: typography.sizes.xs, fontWeight: typography.weights.semibold, color: colors.success, flex: 1 },
+  checkoutBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: borderRadius.md, paddingVertical: spacing.md, marginTop: spacing.xs, backgroundColor: '#16a34a' },
   checkoutBtnText:  { fontSize: typography.sizes.sm, fontWeight: typography.weights.bold, color: '#fff' },
   // Counter offer modal
   modalOverlay:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: spacing.xl },

@@ -47,10 +47,11 @@ export async function createOffer(
   return offer.id;
 }
 
-/** Accepts an offer. Pass either the offer ID string or the full FSOffer object. */
-export async function acceptOffer(offerOrId: ApiOffer | string): Promise<void> {
+/** Accepts an offer. Returns the new transactionId created by the server. */
+export async function acceptOffer(offerOrId: ApiOffer | string): Promise<string | undefined> {
   const id = typeof offerOrId === 'string' ? offerOrId : offerOrId.id;
-  await offersApi.update(id, 'accepted');
+  const { transactionId } = await offersApi.update(id, 'accepted');
+  return transactionId;
 }
 
 export async function declineOffer(offerOrId: ApiOffer | string): Promise<void> {

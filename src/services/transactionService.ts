@@ -76,6 +76,18 @@ export async function verifyDeliveryOtp(id: string, enteredOtp: string): Promise
   return matched;
 }
 
+export async function setMeetup(id: string, meetupLocation: string, meetupTime: string): Promise<void> {
+  await transactionsApi.setMeetup(id, meetupLocation, meetupTime);
+}
+
+export async function confirmMeetup(id: string): Promise<void> {
+  await transactionsApi.confirmMeetup(id);
+}
+
+export async function requestMeetupChange(id: string): Promise<void> {
+  await transactionsApi.requestMeetupChange(id);
+}
+
 // ─── Real-time hooks (polling replaces onSnapshot) ────────────────────────────
 
 export function useTransaction(transactionId: string | undefined) {
@@ -107,16 +119,30 @@ export function useTransaction(transactionId: string | undefined) {
 export function useBuyerTransactions(buyerId: string) {
   const [transactions, setTransactions] = useState<ApiTransaction[]>([]);
   const [loading, setLoading]           = useState(true);
+  const [refreshing, setRefreshing]     = useState(false);
 
-  useEffect(() => {
-    if (!buyerId) return;
-    transactionsApi.byBuyer(buyerId)
-      .then(({ transactions: data }) => setTransactions(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+  const fetch = useCallback(async (silent = false) => {
+    if (!buyerId) { setLoading(false); return; }
+    if (!silent) setLoading(true);
+    try {
+      const { transactions: data } = await transactionsApi.byBuyer(buyerId);
+      setTransactions(data);
+    } catch {
+      // keep existing data on error
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [buyerId]);
 
-  return { transactions, loading };
+  useEffect(() => { fetch(); }, [fetch]);
+
+  const refetch = useCallback(async () => {
+    setRefreshing(true);
+    await fetch(true);
+  }, [fetch]);
+
+  return { transactions, loading, refreshing, refetch };
 }
 
 export function useSellerTransactions(sellerId: string) {

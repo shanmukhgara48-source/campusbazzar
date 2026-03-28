@@ -1,0 +1,36 @@
+{
+  "cli": {
+    "version": ">= 18.4.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_UPLOAD_WORKER_URL": "https://campusbazaar-upload.campusbazaar-api.workers.dev",
+        "EXPO_PUBLIC_RAZORPAY_KEY_ID": "rzp_test_ST04AYPRzMRtvn"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_UPLOAD_WORKER_URL": "https://campusbazaar-upload.campusbazaar-api.workers.dev",
+        "EXPO_PUBLIC_RAZORPAY_KEY_ID": "rzp_test_ST04AYPRzMRtvn"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_UPLOAD_WORKER_URL": "https://campusbazaar-upload.campusbazaar-api.workers.dev",
+        "EXPO_PUBLIC_RAZORPAY_KEY_ID": "rzp_test_ST04AYPRzMRtvn"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

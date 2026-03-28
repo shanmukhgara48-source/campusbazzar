@@ -10,7 +10,10 @@ import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { HomeStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
-import { useTransaction, updateTransactionStatus, verifyDeliveryOtp, TxStatus } from '../../services/transactionService';
+import {
+  useTransaction, updateTransactionStatus, verifyDeliveryOtp,
+  setMeetup, confirmMeetup, requestMeetupChange, TxStatus,
+} from '../../services/transactionService';
 import { getOrCreateChat } from '../../services/chatService';
 import { useAuth } from '../../context/AuthContext';
 import TransactionStatusBadge from '../../components/TransactionStatusBadge';
@@ -41,6 +44,24 @@ export default function TransactionScreen({ navigation, route }: Props) {
   const [otpLoading, setOtpLoading] = useState(false);
   const [showOtpFallback, setShowOtpFallback] = useState(false);
 
+  // ── Set-meetup state (seller) ──────────────────────────────────────────────
+  const MEETUP_LOCATIONS = ['Library', 'Canteen', 'Admin Gate', 'Main Block', 'Hostel Block'];
+  const MEETUP_TIMES     = ['9:00 AM', '11:00 AM', '1:00 PM', '3:00 PM', '5:00 PM', '7:00 PM'];
+  const MEETUP_DATES     = (() => {
+    const dates: string[] = [];
+    for (let i = 1; i <= 3; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      dates.push(d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }));
+    }
+    return dates;
+  })();
+  const [smLocation,    setSmLocation]    = useState<string | null>(null);
+  const [smDate,        setSmDate]        = useState<string | null>(null);
+  const [smTime,        setSmTime]        = useState<string | null>(null);
+  const [smSubmitting,  setSmSubmitting]  = useState(false);
+  const [meetupActing,  setMeetupActing]  = useState(false);
+
   if (loading) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
@@ -62,7 +83,7 @@ export default function TransactionScreen({ navigation, route }: Props) {
   }
 
   const iAmBuyer    = user?.uid === transaction.buyerId;
-  const currentStep = STATUS_FLOW.indexOf(transaction.status);
+  const currentStep = STATUS_FLOW.indexOf(transaction.status as TxStatus);
 
   const handleMessage = async () => {
     if (!user?.uid) return;
@@ -234,6 +255,158 @@ export default function TransactionScreen({ navigation, route }: Props) {
               <Text style={styles.detailText}>{transaction.paymentMethod}</Text>
             </View>
           )}
+        </View>
+      )}
+
+      {/* ── SELLER: Set meetup when accepted or change requested ───────── */}
+      {!iAmBuyer &&
+        (transaction.status === 'accepted' || transaction.meetupStatus === 'change_requested') &&
+        transaction.status !== 'completed' &&
+        transaction.status !== 'cancelled' && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>
+            {transaction.meetupStatus === 'change_requested'
+              ? 'Buyer Requested a Change'
+              : 'Set Meetup Details'}
+          </Text>
+          {transaction.meetupStatus === 'change_requested' && (
+            <Text style={styles.otpHint}>The buyer has asked you to change the meetup time or location.</Text>
+          )}
+
+          <Text style={styles.meetupPickerLabel}>Location</Text>
+          <View style={styles.meetupOptionGrid}>
+            {MEETUP_LOCATIONS.map(loc => (
+              <TouchableOpacity
+                key={loc}
+                style={[styles.meetupChip, smLocation === loc && styles.meetupChipActive]}
+                onPress={() => setSmLocation(loc)}
+              >
+                <Text style={[styles.meetupChipText, smLocation === loc && styles.meetupChipTextActive]}>{loc}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.meetupPickerLabel}>Date</Text>
+          <View style={styles.meetupOptionRow}>
+            {MEETUP_DATES.map(date => (
+              <TouchableOpacity
+                key={date}
+                style={[styles.meetupChip, smDate === date && styles.meetupChipActive]}
+                onPress={() => setSmDate(date)}
+              >
+                <Text style={[styles.meetupChipText, smDate === date && styles.meetupChipTextActive]}>{date}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.meetupPickerLabel}>Time</Text>
+          <View style={styles.meetupOptionGrid}>
+            {MEETUP_TIMES.map(t => (
+              <TouchableOpacity
+                key={t}
+                style={[styles.meetupChip, smTime === t && styles.meetupChipActive]}
+                onPress={() => setSmTime(t)}
+              >
+                <Text style={[styles.meetupChipText, smTime === t && styles.meetupChipTextActive]}>{t}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.setMeetupBtn, (!smLocation || !smDate || !smTime || smSubmitting) && { opacity: 0.5 }]}
+            disabled={!smLocation || !smDate || !smTime || smSubmitting}
+            activeOpacity={0.85}
+            onPress={async () => {
+              if (!smLocation || !smDate || !smTime) return;
+              setSmSubmitting(true);
+              try {
+                await setMeetup(transaction.id, smLocation, `${smDate}, ${smTime}`);
+                setSmLocation(null); setSmDate(null); setSmTime(null);
+                Alert.alert('Meetup Set!', 'The buyer has been notified.');
+              } catch (e: any) {
+                Alert.alert('Error', e?.message ?? 'Could not set meetup.');
+              } finally {
+                setSmSubmitting(false);
+              }
+            }}
+          >
+            {smSubmitting
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <><Ionicons name="location-outline" size={18} color="#fff" /><Text style={styles.setMeetupBtnText}>Set Meetup</Text></>
+            }
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── BUYER: Confirm or request change on meetup ─────────────────── */}
+      {iAmBuyer &&
+        transaction.status === 'meetup_set' &&
+        transaction.meetupStatus === 'seller_set' && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Meetup Proposed</Text>
+          <Text style={styles.otpHint}>Review the meetup details and confirm or ask the seller to change them.</Text>
+          <View style={styles.meetupConfirmActions}>
+            <TouchableOpacity
+              style={[styles.confirmMeetupBtn, meetupActing && { opacity: 0.5 }]}
+              disabled={meetupActing}
+              activeOpacity={0.85}
+              onPress={async () => {
+                setMeetupActing(true);
+                try {
+                  await confirmMeetup(transaction.id);
+                  Alert.alert('Meetup Confirmed!', 'You can now proceed to pay the convenience fee.');
+                } catch (e: any) {
+                  Alert.alert('Error', e?.message ?? 'Could not confirm meetup.');
+                } finally {
+                  setMeetupActing(false);
+                }
+              }}
+            >
+              {meetupActing
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <><Ionicons name="checkmark-circle-outline" size={18} color="#fff" /><Text style={styles.confirmMeetupBtnText}>Confirm Meetup</Text></>
+              }
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.changeMeetupBtn, meetupActing && { opacity: 0.5 }]}
+              disabled={meetupActing}
+              activeOpacity={0.85}
+              onPress={async () => {
+                setMeetupActing(true);
+                try {
+                  await requestMeetupChange(transaction.id);
+                  Alert.alert('Change Requested', 'The seller will be notified to update the meetup details.');
+                } catch (e: any) {
+                  Alert.alert('Error', e?.message ?? 'Could not request change.');
+                } finally {
+                  setMeetupActing(false);
+                }
+              }}
+            >
+              <Ionicons name="refresh-outline" size={18} color={colors.primary} />
+              <Text style={styles.changeMeetupBtnText}>Request Change</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ── BUYER: Pay convenience fee after confirming meetup ─────────── */}
+      {iAmBuyer &&
+        transaction.meetupStatus === 'buyer_confirmed' &&
+        !transaction.convenienceFeePaid &&
+        transaction.status !== 'completed' &&
+        transaction.status !== 'cancelled' && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Complete Your Booking</Text>
+          <Text style={styles.otpHint}>Pay the small convenience fee to lock in your meetup and get your delivery QR code.</Text>
+          <TouchableOpacity
+            style={styles.payNowBtn}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Meetup', { transactionId: transaction.id })}
+          >
+            <Ionicons name="card-outline" size={18} color="#fff" />
+            <Text style={styles.payNowBtnText}>Pay Convenience Fee</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -518,6 +691,45 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md, paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
   },
   cancelBtnText: { color: colors.error, fontSize: typography.sizes.md, fontWeight: typography.weights.semibold },
+
+  // Set meetup pickers (seller)
+  meetupPickerLabel:   { fontSize: typography.sizes.sm, fontWeight: typography.weights.semibold, color: colors.textSecondary, marginBottom: spacing.sm, marginTop: spacing.md },
+  meetupOptionGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  meetupOptionRow:     { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
+  meetupChip: {
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    borderRadius: borderRadius.full, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface,
+  },
+  meetupChipActive:     { borderColor: colors.primary, backgroundColor: colors.primary + '15' },
+  meetupChipText:       { fontSize: typography.sizes.sm, color: colors.textSecondary, fontWeight: typography.weights.medium },
+  meetupChipTextActive: { color: colors.primary, fontWeight: typography.weights.semibold },
+  setMeetupBtn: {
+    backgroundColor: colors.primary, borderRadius: borderRadius.md, height: 50,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm, marginTop: spacing.lg, ...shadows.small,
+  },
+  setMeetupBtnText: { color: '#fff', fontSize: typography.sizes.md, fontWeight: typography.weights.semibold },
+
+  // Confirm/Change meetup (buyer)
+  meetupConfirmActions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
+  confirmMeetupBtn: {
+    flex: 1, backgroundColor: colors.success, borderRadius: borderRadius.md, height: 48,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+  },
+  confirmMeetupBtnText: { color: '#fff', fontSize: typography.sizes.md, fontWeight: typography.weights.semibold },
+  changeMeetupBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: colors.primary, borderRadius: borderRadius.md, height: 48,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+  },
+  changeMeetupBtnText: { color: colors.primary, fontSize: typography.sizes.md, fontWeight: typography.weights.semibold },
+
+  // Pay convenience fee (buyer)
+  payNowBtn: {
+    backgroundColor: colors.primary, borderRadius: borderRadius.md, height: 52,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm, marginTop: spacing.md, ...shadows.small,
+  },
+  payNowBtnText: { color: '#fff', fontSize: typography.sizes.md, fontWeight: typography.weights.bold },
 
   // Review
   reviewBtn: {

@@ -22,6 +22,7 @@ import { mockListings, mockReviews } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
 import { useFavourites } from '../../context/FavouritesContext';
 import { Listing } from '../../types';
+import { listingsApi, transactionsApi } from '../../services/api';
 
 function formatTimestamp(value: unknown): string {
   if (!value) return '';
@@ -55,6 +56,7 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentImage, setCurrentImage] = useState(0);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
     fetchListing(listingId)
@@ -299,48 +301,51 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
       </ScrollView>
 
       {/* Bottom Action Bar */}
+
+      {/* ── Accepted buyer: open their existing transaction ───────────── */}
       {!isOwnListing && isAcceptedBuyer && (
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
           <TouchableOpacity
-            style={styles.checkoutBtn}
-            onPress={() => navigation.navigate('Meetup', { listingId: listing.id })}
+            style={[styles.checkoutBtn, checkoutLoading && { opacity: 0.6 }]}
+            disabled={checkoutLoading}
             activeOpacity={0.85}
+            onPress={async () => {
+              if (!user?.uid) return;
+              setCheckoutLoading(true);
+              try {
+                const { transaction } = await transactionsApi.getByListing(listing.id);
+                navigation.navigate('Transaction', { transactionId: transaction.id });
+              } catch {
+                Alert.alert('Error', 'Could not find your transaction. Check Transaction History.');
+              } finally {
+                setCheckoutLoading(false);
+              }
+            }}
           >
-            <Ionicons name="checkmark-circle" size={20} color="#fff" />
-            <Text style={styles.checkoutBtnText}>Proceed to Checkout · ₹{(finalPrice ?? listing.price).toLocaleString('en-IN')}</Text>
+            {checkoutLoading
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <><Ionicons name="checkmark-circle" size={20} color="#fff" />
+                 <Text style={styles.checkoutBtnText}>View Transaction · ₹{(finalPrice ?? listing.price).toLocaleString('en-IN')}</Text></>
+            }
           </TouchableOpacity>
         </View>
       )}
 
+      {/* ── Regular buyer: Message / Make Offer / Buy Now ─────────────── */}
       {!isOwnListing && !isAcceptedBuyer && (
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + spacing.md }]}>
+          {/* Message */}
           <TouchableOpacity
             style={styles.messageBtn}
             onPress={async () => {
-              if (!user?.uid) {
-                Alert.alert('Login required', 'Please log in to message sellers.');
-                return;
-              }
-              if (!listing.sellerId) {
-                Alert.alert('Error', 'Seller information is missing for this listing.');
-                return;
-              }
-              console.log('[ListingDetail] Message pressed', {
-                buyerId:  user.uid,
-                sellerId: listing.sellerId,
-                listing:  listing.id,
-              });
+              if (!user?.uid) { Alert.alert('Login required', 'Please log in to message sellers.'); return; }
+              if (!listing.sellerId) { Alert.alert('Error', 'Seller information is missing.'); return; }
               try {
                 const names: Record<string, string> = {
-                  [user.uid]:          user.name || user.email || 'Buyer',
-                  [listing.sellerId]:  listing.seller?.name  || 'Seller',
+                  [user.uid]:         user.name || user.email || 'Buyer',
+                  [listing.sellerId]: listing.seller?.name || 'Seller',
                 };
-                const chatId = await getOrCreateChat(
-                  user.uid,
-                  listing.sellerId,
-                  names,
-                  listing.title,
-                );
+                const chatId = await getOrCreateChat(user.uid, listing.sellerId, names, listing.title);
                 navigation.navigate('FirebaseChat', {
                   chatId,
                   otherUserId:   listing.sellerId,
@@ -348,28 +353,36 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
                   listingTitle:  listing.title,
                 });
               } catch (e: any) {
-                console.error('[ListingDetail] chat error:', e?.code, e?.message, e);
-                Alert.alert(
-                  'Could Not Open Chat',
-                  e?.message ?? 'Please try again.',
-                );
+                Alert.alert('Could Not Open Chat', e?.message ?? 'Please try again.');
               }
             }}
           >
             <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
             <Text style={styles.messageBtnText}>Message</Text>
           </TouchableOpacity>
+
+          {/* Make Offer → negotiation flow */}
           <TouchableOpacity
             style={[styles.offerBtn, (isSold || isReserved) && styles.btnDisabled]}
-            onPress={() => !isSold && !isReserved && navigation.navigate('Offer', { listingId: listing.id })}
+            onPress={() => {
+              if (isSold || isReserved) return;
+              if (!user?.uid) { Alert.alert('Login required', 'Please log in to make offers.'); return; }
+              navigation.navigate('Offer', { listingId: listing.id });
+            }}
             disabled={isSold || isReserved}
           >
             <Text style={styles.offerBtnText}>{isSold ? 'Sold' : isReserved ? 'Reserved' : 'Make Offer'}</Text>
           </TouchableOpacity>
+
+          {/* Buy Now → Checkout screen (payment selection, then order) */}
           <TouchableOpacity
             style={[styles.buyBtn, (isSold || isReserved) && styles.btnDisabled]}
-            onPress={() => !isSold && !isReserved && navigation.navigate('Meetup', { listingId: listing.id })}
             disabled={isSold || isReserved}
+            onPress={() => {
+              if (isSold || isReserved) return;
+              if (!user?.uid) { Alert.alert('Login required', 'Please log in to buy.'); return; }
+              navigation.navigate('Checkout', { listingId: listing.id });
+            }}
           >
             <Text style={styles.buyBtnText}>{isSold ? 'Sold' : isReserved ? 'Reserved' : 'Buy Now'}</Text>
           </TouchableOpacity>

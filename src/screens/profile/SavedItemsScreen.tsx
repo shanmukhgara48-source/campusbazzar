@@ -11,6 +11,7 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme'
 import { useFavourites } from '../../context/FavouritesContext';
 import { mockListings } from '../../data/mockData';
 import { Listing } from '../../types';
+import { listingsApi } from '../../services/api';
 
 type Props = {
   navigation: NativeStackNavigationProp<ProfileStackParamList, 'SavedItems'>;
@@ -30,12 +31,10 @@ export default function SavedItemsScreen({ navigation }: Props) {
         return;
       }
       try {
-        const snap = await getDocs(collection(db, 'listings'));
-        const fbListings = snap.docs.map(d => ({ id: d.id, ...d.data() } as Listing));
-        // Merge Firebase + mock; Firebase wins on duplicate IDs
+        const { listings: apiListings } = await listingsApi.list();
         const allById = new Map<string, Listing>();
         mockListings.forEach(l => allById.set(l.id, l));
-        fbListings.forEach(l => allById.set(l.id, l));
+        (apiListings as unknown as Listing[]).forEach(l => allById.set(l.id, l));
         const saved = [...savedIds]
           .map(id => allById.get(id))
           .filter(Boolean) as Listing[];

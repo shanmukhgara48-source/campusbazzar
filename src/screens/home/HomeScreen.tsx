@@ -100,7 +100,7 @@ export default function HomeScreen({ navigation }: Props) {
   const [appliedSort, setAppliedSort]             = useState<SortOption>('latest');
 
   const category = selectedCategory === 'All' ? undefined : selectedCategory;
-  const { listings, loading } = useListings(category);
+  const { listings, loading } = useListings(category ? { category } : undefined);
 
   const filtered = listings
     .filter(l => {

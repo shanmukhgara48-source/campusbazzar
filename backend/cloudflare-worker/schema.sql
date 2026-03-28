@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   razorpay_payment_id  TEXT DEFAULT '',
   delivery_otp         TEXT DEFAULT '',
   status               TEXT DEFAULT 'pending',  -- pending|accepted|meetup_set|completed|cancelled|disputed
+  meetup_status        TEXT DEFAULT 'pending',  -- pending|seller_set|buyer_confirmed|change_requested
   buyer_confirmed      INTEGER DEFAULT 0,
   seller_confirmed     INTEGER DEFAULT 0,
   delivered_at         TEXT,
@@ -178,3 +179,23 @@ CREATE TABLE IF NOT EXISTS favourites (
 );
 
 CREATE INDEX IF NOT EXISTS idx_fav_user ON favourites(user_id);
+
+-- ─── Colleges ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS colleges (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  domain     TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_colleges_domain ON colleges(domain);
+
+-- ─── OTP Pending ──────────────────────────────────────────────────────────────
+-- One row per email. Upserted on each send-otp request.
+CREATE TABLE IF NOT EXISTS otp_pending (
+  email        TEXT PRIMARY KEY,
+  otp          TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,            -- ISO datetime, 5 min from send
+  req_count    INTEGER DEFAULT 1,        -- requests in current window
+  window_start TEXT NOT NULL             -- start of 10-min rate-limit window
+);

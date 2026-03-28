@@ -120,6 +120,26 @@ export const listingsApi = {
 
   delete: (id: string) =>
     apiFetch<{ success: boolean }>(`/listings/${id}`, { method: 'DELETE' }),
+
+  /** Direct purchase at asking price — creates pre-transaction, returns transactionId. */
+  buyNow: (id: string, payment: {
+    paymentMethod: 'online' | 'cod';
+    razorpayPaymentId?: string;
+    razorpayOrderId?: string;
+    razorpaySignature?: string;
+  }) =>
+    apiFetch<{ transactionId: string }>(`/listings/${id}/buy-now`, { method: 'POST', body: JSON.stringify(payment) }),
+};
+
+// ─── Razorpay endpoints ───────────────────────────────────────────────────────
+
+export const razorpayApi = {
+  /** Creates a Razorpay order on the backend and returns order_id + public key. */
+  createOrder: (amountInPaise: number, receipt: string) =>
+    apiFetch<{ orderId: string; keyId: string; amount: number; currency: string }>(
+      '/razorpay/create-order',
+      { method: 'POST', body: JSON.stringify({ amount: amountInPaise, receipt }) },
+    ),
 };
 
 // ─── Offers endpoints ─────────────────────────────────────────────────────────
@@ -135,7 +155,15 @@ export const offersApi = {
     apiFetch<{ offers: ApiOffer[] }>(`/offers/user/${userId}`),
 
   update: (id: string, status: string, counterAmount?: number) =>
-    apiFetch<{ success: boolean }>(`/offers/${id}`, { method: 'PUT', body: JSON.stringify({ status, counterAmount }) }),
+    apiFetch<{ success: boolean; transactionId?: string }>(`/offers/${id}`, { method: 'PUT', body: JSON.stringify({ status, counterAmount }) }),
+
+  /**
+   * Returns the latest accepted deal (offer) for a specific buyer + listing.
+   * CheckoutScreen calls this to confirm the negotiated price before payment.
+   * Returns `{ deal: ApiOffer | null }`.
+   */
+  activeDeal: (listingId: string, buyerId: string) =>
+    apiFetch<{ deal: ApiOffer | null }>(`/offers/listing/${listingId}/deal?buyerId=${encodeURIComponent(buyerId)}`),
 };
 
 // ─── Transactions endpoints ───────────────────────────────────────────────────
@@ -156,11 +184,29 @@ export const transactionsApi = {
   bySeller: (userId: string) =>
     apiFetch<{ transactions: ApiTransaction[] }>(`/transactions/seller/${userId}`),
 
+  getByListing: (listingId: string) =>
+    apiFetch<{ transaction: ApiTransaction }>(`/transactions/listing/${listingId}`),
+
   verifyQR: (id: string, qrData: string) =>
     apiFetch<{ success: boolean }>(`/transactions/${id}/verify-qr`, { method: 'POST', body: JSON.stringify({ qrData }) }),
 
   verifyOTP: (id: string, otp: string) =>
     apiFetch<{ matched: boolean }>(`/transactions/${id}/verify-otp`, { method: 'POST', body: JSON.stringify({ otp }) }),
+
+  setMeetup: (id: string, meetupLocation: string, meetupTime: string) =>
+    apiFetch<{ success: boolean }>(`/transactions/${id}/set-meetup`, { method: 'POST', body: JSON.stringify({ meetupLocation, meetupTime }) }),
+
+  confirmMeetup: (id: string) =>
+    apiFetch<{ success: boolean }>(`/transactions/${id}/confirm-meetup`, { method: 'POST', body: '{}' }),
+
+  requestMeetupChange: (id: string) =>
+    apiFetch<{ success: boolean }>(`/transactions/${id}/request-meetup-change`, { method: 'POST', body: '{}' }),
+
+  cancel: (orderId: string) =>
+    apiFetch<{ success: boolean; paymentStatus: string; refundId?: string }>(
+      '/cancel-order',
+      { method: 'POST', body: JSON.stringify({ orderId }) },
+    ),
 };
 
 // ─── Conversations & Messages endpoints ───────────────────────────────────────
@@ -196,6 +242,39 @@ export const notificationsApi = {
 export const usersApi = {
   get: (id: string) =>
     apiFetch<{ user: ApiUser }>(`/users/${id}`),
+};
+
+// ─── Colleges endpoints ───────────────────────────────────────────────────────
+
+export interface ApiCollege {
+  id: string;
+  name: string;
+  domain: string;
+  createdAt: string;
+}
+
+export const collegesApi = {
+  list: () =>
+    apiFetch<{ colleges: ApiCollege[] }>('/colleges', {}, false),
+
+  create: (name: string, domain: string) =>
+    apiFetch<{ college: ApiCollege }>('/colleges', { method: 'POST', body: JSON.stringify({ name, domain }) }),
+
+  delete: (id: string) =>
+    apiFetch<{ success: boolean }>(`/colleges/${id}`, { method: 'DELETE' }),
+};
+
+// ─── OTP endpoints ────────────────────────────────────────────────────────────
+
+export const otpApi = {
+  sendOtp: (email: string) =>
+    apiFetch<{ message: string }>('/send-otp', { method: 'POST', body: JSON.stringify({ email }) }, false),
+
+  verifyOtp: (email: string, otp: string, name: string, password: string, rollNumber?: string) =>
+    apiFetch<{ token: string; user: ApiUser }>('/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp, name, password, rollNumber }),
+    }, false),
 };
 
 // ─── API types ────────────────────────────────────────────────────────────────
@@ -286,6 +365,8 @@ export interface ApiTransaction {
   isDelivered: boolean;
   meetupLocation: string;
   meetupTime: string;
+  meetupStatus: string;    // pending | seller_set | buyer_confirmed | change_requested
+  paymentStatus: string;   // pending | paid | refunded | refund_pending | cancelled
   paymentMethod: string;
   razorpayPaymentId?: string;
   deliveryOtp?: string;

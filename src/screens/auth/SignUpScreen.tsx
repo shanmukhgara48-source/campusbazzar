@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,113 +11,37 @@ import {
   Modal,
   FlatList,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthStackParamList } from '../../navigation/types';
 import { colors, spacing, borderRadius, typography } from '../../theme';
-import { signUp } from '../../services/authService';
+import { sendOtp } from '../../services/authService';
+import { collegesApi, ApiCollege } from '../../services/api';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'SignUp'>;
 };
 
-// ─────────────────────────────────────────────
-// College list with email domain mapping
-// ─────────────────────────────────────────────
-interface College {
-  name: string;
-  short: string;
-  domain: string;
-}
-
-const COLLEGES: College[] = [
-  // ── Premier institutes ──────────────────────────────────────────────
-  { name: 'IIT Hyderabad',                                              short: 'IITH',    domain: 'iith.ac.in' },
-  { name: 'IIIT Hyderabad',                                             short: 'IIITH',   domain: 'iiit.ac.in' },
-  { name: 'University of Hyderabad (UoH)',                              short: 'UoH',     domain: 'uohyd.ac.in' },
-  { name: 'Osmania University',                                         short: 'OU',      domain: 'osmania.ac.in' },
-  { name: 'JNTUH',                                                      short: 'JNTUH',   domain: 'jntuh.ac.in' },
-
-  // ── Autonomous / NAAC A+ colleges ───────────────────────────────────
-  { name: 'VNR VJIET',                                                  short: 'VNRVJIET',domain: 'vnrvjiet.ac.in' },
-  { name: 'CBIT (Chaitanya Bharathi Institute of Technology)',          short: 'CBIT',    domain: 'cbit.ac.in' },
-  { name: 'MGIT (Mahatma Gandhi Institute of Technology)',              short: 'MGIT',    domain: 'mgit.ac.in' },
-  { name: 'Vasavi College of Engineering',                              short: 'VCE',     domain: 'vasaviengg.ac.in' },
-  { name: 'Gokaraju Rangaraju Institute of Engineering (GRIET)',        short: 'GRIET',   domain: 'griet.ac.in' },
-  { name: 'Mahindra École Centrale (MEC)',                              short: 'MEC',     domain: 'mahindrauniversity.edu.in' },
-  { name: 'Sreenidhi Institute of Science and Technology (SNIST)',      short: 'SNIST',   domain: 'sreenidhi.edu.in' },
-  { name: 'Vardhaman College of Engineering',                           short: 'VCE-V',   domain: 'vardhaman.org' },
-  { name: 'Anurag University',                                          short: 'AU-HYD',  domain: 'anurag.edu.in' },
-  { name: 'Anurag Group of Institutions (CVSR)',                        short: 'CVSR',    domain: 'cvsr.ac.in' },
-
-  // ── Malla Reddy group ────────────────────────────────────────────────
-  { name: 'Malla Reddy Engineering College (MREC)',                     short: 'MREC',    domain: 'mallareddyengineeringcollege.ac.in' },
-  { name: 'Malla Reddy Institute of Technology (MRIT)',                 short: 'MRIT',    domain: 'mrits.ac.in' },
-  { name: 'Malla Reddy College of Engineering for Women',               short: 'MRCEW',   domain: 'mrec.ac.in' },
-
-  // ── Other well-known colleges ────────────────────────────────────────
-  { name: 'Institute of Aeronautical Engineering (IARE)',               short: 'IARE',    domain: 'iare.ac.in' },
-  { name: 'MLR Institute of Technology',                                short: 'MLRIT',   domain: 'mlrinstitutions.ac.in' },
-  { name: 'St. Martin\'s Engineering College',                          short: 'SMEC',    domain: 'smec.ac.in' },
-  { name: 'BVRIT Hyderabad College of Engineering for Women',           short: 'BVRIT',   domain: 'bvrithyderabad.ac.in' },
-  { name: 'GNITS (G. Narayanamma Institute of Technology & Science)',   short: 'GNITS',   domain: 'gnits.ac.in' },
-  { name: 'Stanley College of Engineering for Women',                   short: 'Stanley', domain: 'stanley.edu.in' },
-  { name: 'Methodist College of Engineering and Technology',            short: 'MCET',    domain: 'methodist.edu.in' },
-  { name: 'Deccan College of Engineering and Technology',               short: 'DCET',    domain: 'deccancollegehyd.ac.in' },
-  { name: 'Muffakham Jah College of Engineering (MJCET)',               short: 'MJCET',   domain: 'mjcollege.ac.in' },
-  { name: 'Lords Institute of Engineering and Technology',              short: 'LORDS',   domain: 'lordsinstitution.ac.in' },
-  { name: 'Nawab Shah Alam Khan College of Engineering & Technology',   short: 'NSAKEC',  domain: 'nsaket.ac.in' },
-  { name: 'ISL Engineering College',                                    short: 'ISLEC',   domain: 'islec.ac.in' },
-  { name: 'Shadan College of Engineering and Technology',               short: 'SCET',    domain: 'shadancet.ac.in' },
-
-  // ── CMR group ────────────────────────────────────────────────────────
-  { name: 'CMR College of Engineering and Technology',                  short: 'CMRCET',  domain: 'cmrcet.ac.in' },
-  { name: 'CMR Technical Campus',                                       short: 'CMRTC',   domain: 'cmrtc.ac.in' },
-  { name: 'CMR Institute of Technology',                                short: 'CMRIT',   domain: 'cmritonline.ac.in' },
-
-  // ── Aurora group ─────────────────────────────────────────────────────
-  { name: "Aurora's Engineering College",                               short: 'AEC',     domain: 'aec.edu.in' },
-  { name: "Aurora's Technological and Research Institute",              short: 'ATRI',    domain: 'atri.edu.in' },
-
-  // ── Other institutions ───────────────────────────────────────────────
-  { name: 'Holy Mary Institute of Technology and Science',              short: 'HMIT',    domain: 'holymaryengg.ac.in' },
-  { name: 'Bhoj Reddy Engineering College for Women',                   short: 'BRECW',   domain: 'brecw.ac.in' },
-  { name: 'Siddhartha Institute of Engineering and Technology',         short: 'SIET',    domain: 'sietk.ac.in' },
-  { name: 'Brilliant Grammar School Educational Society GI',            short: 'BGS',     domain: 'bgsgroups.com' },
-  { name: 'Swarna Bharathi Institute of Science and Technology',        short: 'SBIT',    domain: 'sbitsiddipet.ac.in' },
-
-  // ── Vignan group ─────────────────────────────────────────────────────
-  { name: 'Vignan Institute of Technology and Science',                 short: 'VITS',    domain: 'vignanits.ac.in' },
-  { name: 'Vignan Bharathi Institute of Technology',                    short: 'VBIT',    domain: 'vbit.ac.in' },
-
-  // ── More colleges ────────────────────────────────────────────────────
-  { name: 'Maturi Venkata Subba Rao Engineering College (MVSR)',        short: 'MVSR',    domain: 'mvsrec.ac.in' },
-  { name: 'TKR College of Engineering and Technology',                  short: 'TKRCET',  domain: 'tkrcet.com' },
-  { name: 'TKR Institute of Engineering and Technology',                short: 'TKRMET',  domain: 'tkrmet.com' },
-  { name: 'Keshav Memorial Institute of Technology',                    short: 'KMIT',    domain: 'kmit.in' },
-  { name: 'Keshav Memorial Engineering College',                        short: 'KMEC',    domain: 'kmec.ac.in' },
-  { name: "St. Mary's Engineering College",                             short: 'SMEC-M',  domain: 'stmarys.ac.in' },
-  { name: 'AVN Institute of Engineering and Technology',                short: 'AVNIET',  domain: 'avniet.ac.in' },
-
-  // ── Fallback ─────────────────────────────────────────────────────────
-  { name: 'Other',                                                       short: 'Other',   domain: '' },
+// ─── Fallback college list (shown when API unavailable) ───────────────────────
+const FALLBACK_COLLEGES: ApiCollege[] = [
+  { id: '1', name: 'VNR VJIET',                    domain: 'vnrvjiet.ac.in',     createdAt: '' },
+  { id: '2', name: 'CBIT',                          domain: 'cbit.ac.in',         createdAt: '' },
+  { id: '3', name: 'IIT Hyderabad',                 domain: 'iith.ac.in',         createdAt: '' },
+  { id: '4', name: 'IIIT Hyderabad',                domain: 'iiit.ac.in',         createdAt: '' },
+  { id: '5', name: 'MGIT',                          domain: 'mgit.ac.in',         createdAt: '' },
+  { id: '6', name: 'GRIET',                         domain: 'griet.ac.in',        createdAt: '' },
+  { id: '7', name: 'KMIT',                          domain: 'kmit.in',            createdAt: '' },
+  { id: '8', name: 'Anurag University',             domain: 'anurag.edu.in',      createdAt: '' },
+  { id: '9', name: 'Osmania University',            domain: 'osmania.ac.in',      createdAt: '' },
+  { id: '10', name: 'JNTUH',                        domain: 'jntuh.ac.in',        createdAt: '' },
 ];
 
-// ─────────────────────────────────────────────
-// Reusable field wrapper
-// ─────────────────────────────────────────────
-function Field({
-  label,
-  error,
-  required,
-  children,
-}: {
-  label: string;
-  error?: string;
-  required?: boolean;
-  children: React.ReactNode;
+// ─── Field wrapper ────────────────────────────────────────────────────────────
+function Field({ label, error, required, children }: {
+  label: string; error?: string; required?: boolean; children: React.ReactNode;
 }) {
   return (
     <View style={f.wrap}>
@@ -145,27 +69,35 @@ const f = StyleSheet.create({
   errorText:{ fontSize: typography.sizes.xs, color: colors.error },
 });
 
-// ─────────────────────────────────────────────
-// Main screen
-// ─────────────────────────────────────────────
+// ─── Main screen ──────────────────────────────────────────────────────────────
 export default function SignUpScreen({ navigation }: Props) {
-  const [fullName,        setFullName]        = useState('');
-  const [rollNumber,      setRollNumber]      = useState('');
-  const [selectedCollege, setSelectedCollege] = useState<College | null>(null);
+  const [colleges, setColleges]           = useState<ApiCollege[]>([]);
+  const [collegesLoading, setCollegesLoading] = useState(true);
+  const [fullName,        setFullName]    = useState('');
+  const [rollNumber,      setRollNumber]  = useState('');
+  const [selectedCollege, setSelectedCollege] = useState<ApiCollege | null>(null);
   const [collegeSearch,   setCollegeSearch]   = useState('');
-  const [showPicker,      setShowPicker]      = useState(false);
-  const [email,           setEmail]           = useState('');
-  const [password,        setPassword]        = useState('');
-  const [confirmPw,       setConfirmPw]       = useState('');
-  const [showPw,          setShowPw]          = useState(false);
-  const [showConfirmPw,   setShowConfirmPw]   = useState(false);
-  const [isLoading,       setIsLoading]       = useState(false);
-  const [errors,          setErrors]          = useState<Record<string, string>>({});
+  const [showPicker,      setShowPicker]  = useState(false);
+  const [email,           setEmail]       = useState('');
+  const [password,        setPassword]    = useState('');
+  const [confirmPw,       setConfirmPw]   = useState('');
+  const [showPw,          setShowPw]      = useState(false);
+  const [showConfirmPw,   setShowConfirmPw] = useState(false);
+  const [isLoading,       setIsLoading]   = useState(false);
+  const [errors,          setErrors]      = useState<Record<string, string>>({});
 
   const rollRef    = useRef<React.ComponentRef<typeof TextInput>>(null);
   const emailRef   = useRef<React.ComponentRef<typeof TextInput>>(null);
   const pwRef      = useRef<React.ComponentRef<typeof TextInput>>(null);
   const confirmRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+
+  // Load colleges from API
+  useEffect(() => {
+    collegesApi.list()
+      .then(({ colleges: data }) => setColleges(data.length > 0 ? data : FALLBACK_COLLEGES))
+      .catch(() => setColleges(FALLBACK_COLLEGES))
+      .finally(() => setCollegesLoading(false));
+  }, []);
 
   const getEmailDomain = (e: string) =>
     e.includes('@') ? e.split('@')[1]?.toLowerCase().trim() ?? '' : '';
@@ -173,19 +105,16 @@ export default function SignUpScreen({ navigation }: Props) {
   const clearError = (key: string) =>
     setErrors(prev => ({ ...prev, [key]: '' }));
 
-  const filteredColleges = COLLEGES.filter(c =>
+  const filteredColleges = colleges.filter(c =>
     c.name.toLowerCase().includes(collegeSearch.toLowerCase()) ||
-    c.short.toLowerCase().includes(collegeSearch.toLowerCase())
+    c.domain.toLowerCase().includes(collegeSearch.toLowerCase())
   );
 
-  // ── Validation ──────────────────────────────
   const validate = (): boolean => {
     const e: Record<string, string> = {};
 
-    if (!fullName.trim())
-      e.fullName = 'Full name is required.';
-    else if (fullName.trim().length < 2)
-      e.fullName = 'Name must be at least 2 characters.';
+    if (!fullName.trim() || fullName.trim().length < 2)
+      e.fullName = 'Full name must be at least 2 characters.';
 
     if (!rollNumber.trim())
       e.rollNumber = 'Roll number is required.';
@@ -197,18 +126,12 @@ export default function SignUpScreen({ navigation }: Props) {
       e.email = 'College email is required.';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       e.email = 'Enter a valid email address.';
-    } else if (selectedCollege && selectedCollege.domain) {
+    } else if (selectedCollege) {
       if (getEmailDomain(email) !== selectedCollege.domain.toLowerCase())
-        e.email = `The email domain does not match the selected college. Expected @${selectedCollege.domain}`;
-    } else {
-      const domain = getEmailDomain(email);
-      if (!domain.endsWith('.ac.in') && !domain.endsWith('.edu') && !domain.endsWith('.edu.in'))
-        e.email = 'Please use a valid college email (.ac.in or .edu).';
+        e.email = `Email must end with @${selectedCollege.domain}`;
     }
 
-    if (!password)
-      e.password = 'Password is required.';
-    else if (password.length < 6)
+    if (!password || password.length < 6)
       e.password = 'Password must be at least 6 characters.';
 
     if (!confirmPw)
@@ -220,28 +143,22 @@ export default function SignUpScreen({ navigation }: Props) {
     return Object.keys(e).length === 0;
   };
 
-  const handleSubmit = async () => {
+  const handleSendOtp = async () => {
     if (!validate()) return;
     setIsLoading(true);
     try {
-      await signUp(email.trim(), password.trim(), {
-        name:        fullName.trim(),
-        college:     selectedCollege?.name ?? '',
-        rollNumber:  rollNumber.trim(),
+      await sendOtp(email.trim());
+      navigation.navigate('OTP', {
+        email:        email.trim().toLowerCase(),
+        fullName:     fullName.trim(),
+        rollNumber:   rollNumber.trim(),
+        collegeName:  selectedCollege!.name,
+        collegeDomain:selectedCollege!.domain,
+        password:     password,
       });
-      Alert.alert(
-        'Account Created!',
-        'You can now log in.',
-        [{ text: 'Log In', onPress: () => navigation.navigate('Login') }],
-        { cancelable: false },
-      );
     } catch (e: any) {
-      const msg =
-        e.code === 'auth/email-already-in-use' ? 'This email is already registered.' :
-        e.code === 'auth/invalid-email'        ? 'Invalid email address.' :
-        e.code === 'auth/weak-password'        ? 'Password must be at least 6 characters.' :
-        e.message ?? 'Sign up failed. Please try again.';
-      Alert.alert('Sign Up Failed', msg);
+      const msg = e?.message ?? 'Failed to send OTP. Please try again.';
+      Alert.alert('Error', msg);
     } finally {
       setIsLoading(false);
     }
@@ -256,7 +173,6 @@ export default function SignUpScreen({ navigation }: Props) {
     borderColor: errors[key] ? colors.error : colors.border,
   });
 
-  // ── Render ───────────────────────────────────
   return (
     <LinearGradient
       colors={[colors.primaryDark, colors.primary, colors.primaryLight]}
@@ -271,22 +187,19 @@ export default function SignUpScreen({ navigation }: Props) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Back button */}
           <TouchableOpacity style={s.backBtn} onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={22} color="#fff" />
             <Text style={s.backText}>Back to Login</Text>
           </TouchableOpacity>
 
-          {/* Header */}
           <View style={s.header}>
             <View style={s.iconCircle}>
               <Ionicons name="person-add" size={38} color={colors.primary} />
             </View>
             <Text style={s.title}>Create Account</Text>
-            <Text style={s.subtitle}>Fill in all fields to verify your student identity.</Text>
+            <Text style={s.subtitle}>Register with your college email to get verified.</Text>
           </View>
 
-          {/* Form card */}
           <View style={s.card}>
 
             {/* Full Name */}
@@ -324,32 +237,30 @@ export default function SignUpScreen({ navigation }: Props) {
               </View>
             </Field>
 
-            {/* College Name */}
-            <Field label="College Name" error={errors.college} required>
+            {/* College */}
+            <Field label="College" error={errors.college} required>
               <TouchableOpacity
                 style={[s.row, s.pickerRow, borderFor('college')]}
                 onPress={() => setShowPicker(true)}
                 activeOpacity={0.8}
               >
                 <Ionicons name="school-outline" size={18} color={colors.textTertiary} style={s.icon} />
-                {selectedCollege ? (
+                {collegesLoading ? (
+                  <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />
+                ) : selectedCollege ? (
                   <View style={s.pickerValue}>
                     <Text style={s.pickerValueName} numberOfLines={1}>{selectedCollege.name}</Text>
-                    {!!selectedCollege.domain && (
-                      <Text style={s.pickerValueDomain}>@{selectedCollege.domain}</Text>
-                    )}
+                    <Text style={s.pickerValueDomain}>@{selectedCollege.domain}</Text>
                   </View>
                 ) : (
-                  <Text style={s.pickerPlaceholder}>Enter or select your college name</Text>
+                  <Text style={s.pickerPlaceholder}>Select your college</Text>
                 )}
                 <Ionicons name="chevron-down" size={18} color={colors.textTertiary} />
               </TouchableOpacity>
               {selectedCollege && (
                 <View style={s.hint}>
                   <Ionicons name="information-circle-outline" size={13} color={colors.info} />
-                  <Text style={s.hintText}>
-                    Your email must end with @{selectedCollege.domain || 'your college domain'}
-                  </Text>
+                  <Text style={s.hintText}>Email must end with @{selectedCollege.domain}</Text>
                 </View>
               )}
             </Field>
@@ -361,11 +272,7 @@ export default function SignUpScreen({ navigation }: Props) {
                 <TextInput
                   ref={emailRef}
                   style={s.input}
-                  placeholder={
-                    selectedCollege?.domain
-                      ? `name@${selectedCollege.domain}`
-                      : 'your.name@college.ac.in'
-                  }
+                  placeholder={selectedCollege?.domain ? `name@${selectedCollege.domain}` : 'your.name@college.ac.in'}
                   placeholderTextColor={colors.textTertiary}
                   value={email}
                   onChangeText={t => { setEmail(t.trim()); clearError('email'); }}
@@ -397,11 +304,7 @@ export default function SignUpScreen({ navigation }: Props) {
                   onSubmitEditing={() => confirmRef.current?.focus()}
                 />
                 <TouchableOpacity onPress={() => setShowPw(!showPw)}>
-                  <Ionicons
-                    name={showPw ? 'eye-off-outline' : 'eye-outline'}
-                    size={18}
-                    color={colors.textTertiary}
-                  />
+                  <Ionicons name={showPw ? 'eye-off-outline' : 'eye-outline'} size={18} color={colors.textTertiary} />
                 </TouchableOpacity>
               </View>
             </Field>
@@ -419,42 +322,34 @@ export default function SignUpScreen({ navigation }: Props) {
                   onChangeText={t => { setConfirmPw(t); clearError('confirmPw'); }}
                   secureTextEntry={!showConfirmPw}
                   returnKeyType="done"
-                  onSubmitEditing={handleSubmit}
+                  onSubmitEditing={handleSendOtp}
                 />
                 <TouchableOpacity onPress={() => setShowConfirmPw(!showConfirmPw)}>
-                  <Ionicons
-                    name={showConfirmPw ? 'eye-off-outline' : 'eye-outline'}
-                    size={18}
-                    color={colors.textTertiary}
-                  />
+                  <Ionicons name={showConfirmPw ? 'eye-off-outline' : 'eye-outline'} size={18} color={colors.textTertiary} />
                 </TouchableOpacity>
               </View>
             </Field>
 
-            {/* Submit */}
+            {/* Send OTP button */}
             <TouchableOpacity
               style={[s.btn, isLoading && s.btnDisabled]}
-              onPress={handleSubmit}
+              onPress={handleSendOtp}
               disabled={isLoading}
               activeOpacity={0.85}
             >
               {isLoading ? (
-                <Text style={s.btnText}>Creating Account…</Text>
+                <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="person-add-outline" size={20} color="#fff" />
-                  <Text style={s.btnText}>Create Account</Text>
+                  <Ionicons name="mail-outline" size={20} color="#fff" />
+                  <Text style={s.btnText}>Send OTP & Continue</Text>
                 </>
               )}
             </TouchableOpacity>
 
-            {/* Already have an account */}
             <View style={s.loginRow}>
               <Text style={s.loginPrompt}>Already have an account?</Text>
-              <TouchableOpacity
-                onPress={() => navigation.navigate('Login')}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
+              <TouchableOpacity onPress={() => navigation.navigate('Login')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Text style={s.loginLink}>Log In</Text>
               </TouchableOpacity>
             </View>
@@ -466,12 +361,8 @@ export default function SignUpScreen({ navigation }: Props) {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal
-        visible={showPicker}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowPicker(false)}
-      >
+      {/* College picker modal */}
+      <Modal visible={showPicker} animationType="slide" transparent onRequestClose={() => setShowPicker(false)}>
         <View style={s.overlay}>
           <View style={s.sheet}>
             <View style={s.sheetHeader}>
@@ -485,7 +376,7 @@ export default function SignUpScreen({ navigation }: Props) {
               <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
               <TextInput
                 style={s.searchInput}
-                placeholder="Search by name or short code..."
+                placeholder="Search college..."
                 placeholderTextColor={colors.textTertiary}
                 value={collegeSearch}
                 onChangeText={setCollegeSearch}
@@ -500,12 +391,12 @@ export default function SignUpScreen({ navigation }: Props) {
 
             <FlatList
               data={filteredColleges}
-              keyExtractor={item => item.name}
+              keyExtractor={item => item.id}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
               ItemSeparatorComponent={() => <View style={s.sep} />}
               renderItem={({ item }) => {
-                const active = selectedCollege?.name === item.name;
+                const active = selectedCollege?.id === item.id;
                 return (
                   <TouchableOpacity
                     style={[s.collegeRow, active && s.collegeRowActive]}
@@ -517,14 +408,9 @@ export default function SignUpScreen({ navigation }: Props) {
                     }}
                     activeOpacity={0.8}
                   >
-                    <View style={[s.shortBadge, active && s.shortBadgeActive]}>
-                      <Text style={[s.shortText, active && s.shortTextActive]}>{item.short}</Text>
-                    </View>
                     <View style={s.collegeInfo}>
                       <Text style={[s.collegeName, active && s.collegeNameActive]}>{item.name}</Text>
-                      {!!item.domain && (
-                        <Text style={s.collegeDomain}>@{item.domain}</Text>
-                      )}
+                      <Text style={s.collegeDomain}>@{item.domain}</Text>
                     </View>
                     {active && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
                   </TouchableOpacity>
@@ -538,184 +424,59 @@ export default function SignUpScreen({ navigation }: Props) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Styles
-// ─────────────────────────────────────────────
 const s = StyleSheet.create({
   gradient: { flex: 1 },
   flex:     { flex: 1 },
-  scroll: {
-    flexGrow: 1,
-    padding: spacing.xl,
-    paddingTop: 56,
-    paddingBottom: spacing.xxxl,
-  },
+  scroll: { flexGrow: 1, padding: spacing.xl, paddingTop: 56, paddingBottom: spacing.xxxl },
 
-  // Back button
-  backBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.xl,
-  },
-  backText: {
-    fontSize: typography.sizes.md,
-    color: '#fff',
-    fontWeight: typography.weights.medium,
-  },
+  backBtn:  { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xl },
+  backText: { fontSize: typography.sizes.md, color: '#fff', fontWeight: typography.weights.medium },
 
-  // Header
-  header: { alignItems: 'center', marginBottom: spacing.xxl },
-  iconCircle: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: '#fff',
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: spacing.md,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2, shadowRadius: 16, elevation: 10,
-  },
-  title: {
-    fontSize: typography.sizes.xxxl,
-    fontWeight: typography.weights.extrabold,
-    color: '#fff',
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: typography.sizes.sm,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: spacing.xs,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
+  header:     { alignItems: 'center', marginBottom: spacing.xxl },
+  iconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 10 },
+  title:      { fontSize: typography.sizes.xxxl, fontWeight: typography.weights.extrabold, color: '#fff', letterSpacing: -0.5 },
+  subtitle:   { fontSize: typography.sizes.sm, color: 'rgba(255,255,255,0.8)', marginTop: spacing.xs, textAlign: 'center', lineHeight: 20 },
 
-  // Card
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: borderRadius.xl,
-    padding: spacing.xxl,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15, shadowRadius: 24, elevation: 12,
-  },
+  card: { backgroundColor: '#fff', borderRadius: borderRadius.xl, padding: spacing.xxl, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12 },
 
-  // Input rows
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.background,
-    minHeight: 52,
-  },
+  row:   { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.border, borderRadius: borderRadius.md, paddingHorizontal: spacing.md, backgroundColor: colors.background, minHeight: 52 },
   icon:  { marginRight: spacing.sm },
   input: { flex: 1, height: 52, fontSize: typography.sizes.md, color: colors.textPrimary },
 
-  // College picker trigger
   pickerRow:         { paddingVertical: spacing.sm, height: undefined },
   pickerPlaceholder: { flex: 1, fontSize: typography.sizes.md, color: colors.textTertiary },
   pickerValue:       { flex: 1 },
   pickerValueName:   { fontSize: typography.sizes.md, color: colors.textPrimary, fontWeight: typography.weights.medium },
   pickerValueDomain: { fontSize: typography.sizes.xs, color: colors.primary, marginTop: 1 },
 
-  // Domain hint
   hint:     { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5, paddingHorizontal: 2 },
   hintText: { fontSize: typography.sizes.xs, color: colors.info },
 
-  // Submit button
-  btn: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    height: 54,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
-  },
+  btn:         { backgroundColor: colors.primary, borderRadius: borderRadius.md, height: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.sm, shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 6 },
   btnDisabled: { opacity: 0.7 },
-  btnText: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.semibold,
-    color: '#fff',
-  },
+  btnText:     { fontSize: typography.sizes.md, fontWeight: typography.weights.semibold, color: '#fff' },
 
-  // Already have account link
-  loginRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginTop: spacing.xl,
-  },
+  loginRow:    { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xl },
   loginPrompt: { fontSize: typography.sizes.md, color: colors.textSecondary },
-  loginLink: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-    textDecorationLine: 'underline',
-  },
+  loginLink:   { fontSize: typography.sizes.md, fontWeight: typography.weights.bold, color: colors.primary, textDecorationLine: 'underline' },
 
-  footer: {
-    fontSize: typography.sizes.xs,
-    color: 'rgba(255,255,255,0.5)',
-    textAlign: 'center',
-    marginTop: spacing.xl,
-    lineHeight: 18,
-  },
+  footer: { fontSize: typography.sizes.xs, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginTop: spacing.xl, lineHeight: 18 },
 
-  // ── College picker modal ──
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: borderRadius.xl,
-    borderTopRightRadius: borderRadius.xl,
-    maxHeight: '80%',
-    paddingBottom: 32,
-  },
-  sheetHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    padding: spacing.xl,
-    borderBottomWidth: 1, borderBottomColor: colors.borderLight,
-  },
-  sheetTitle: { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.textPrimary },
-  closeBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center',
-  },
+  sheet:   { backgroundColor: '#fff', borderTopLeftRadius: borderRadius.xl, borderTopRightRadius: borderRadius.xl, maxHeight: '80%', paddingBottom: 32 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.xl, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
+  sheetTitle:  { fontSize: typography.sizes.lg, fontWeight: typography.weights.bold, color: colors.textPrimary },
+  closeBtn:    { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' },
 
-  searchRow: {
-    flexDirection: 'row', alignItems: 'center',
-    margin: spacing.lg, paddingHorizontal: spacing.md,
-    borderWidth: 1.5, borderColor: colors.border,
-    borderRadius: borderRadius.md, backgroundColor: colors.background,
-    gap: spacing.sm, height: 44,
-  },
+  searchRow:   { flexDirection: 'row', alignItems: 'center', margin: spacing.lg, paddingHorizontal: spacing.md, borderWidth: 1.5, borderColor: colors.border, borderRadius: borderRadius.md, backgroundColor: colors.background, gap: spacing.sm, height: 44 },
   searchInput: { flex: 1, fontSize: typography.sizes.md, color: colors.textPrimary },
 
-  collegeRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md,
-  },
+  collegeRow:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md },
   collegeRowActive: { backgroundColor: '#f0f7f3' },
   collegeInfo:      { flex: 1 },
   collegeName:      { fontSize: typography.sizes.md, color: colors.textPrimary, fontWeight: typography.weights.medium },
   collegeNameActive:{ color: colors.primary, fontWeight: typography.weights.semibold },
   collegeDomain:    { fontSize: typography.sizes.xs, color: colors.textTertiary, marginTop: 1 },
-
-  shortBadge: {
-    width: 52, height: 32, borderRadius: borderRadius.sm,
-    backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  shortBadgeActive: { backgroundColor: '#e8f5ee', borderColor: colors.primary },
-  shortText:        { fontSize: 10, fontWeight: typography.weights.bold, color: colors.textSecondary },
-  shortTextActive:  { color: colors.primary },
 
   sep: { height: 1, backgroundColor: colors.borderLight, marginHorizontal: spacing.xl },
 });

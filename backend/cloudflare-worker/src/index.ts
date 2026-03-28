@@ -10,6 +10,13 @@ interface Env {
   R2_PUBLIC_URL: string;
   JWT_SECRET: string;
   ALLOWED_ORIGIN: string;
+  RESEND_API_KEY: string;         // npx wrangler secret put RESEND_API_KEY
+  DEV_MODE: string;               // set to "true" in [vars] for local testing (returns OTP in response)
+  RAZORPAY_KEY_ID: string;        // npx wrangler secret put RAZORPAY_KEY_ID
+  RAZORPAY_KEY_SECRET: string;    // npx wrangler secret put RAZORPAY_KEY_SECRET
+  ADMIN_JWT_SECRET: string;       // npx wrangler secret put ADMIN_JWT_SECRET  (separate secret — never shared with mobile)
+  ADMIN_EMAIL: string;            // npx wrangler secret put ADMIN_EMAIL
+  ADMIN_PASSWORD_HASH: string;    // npx wrangler secret put ADMIN_PASSWORD_HASH  (SHA-256 hex of admin password)
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -148,6 +155,157 @@ async function getSignedUploadUrl(env: Env, key: string, contentType: string): P
   return `${endpoint}/${env.R2_BUCKET_NAME}/${key}?${params.toString()}&X-Amz-Signature=${signature}`;
 }
 
+// ─── OTP helpers ─────────────────────────────────────────────────────────────
+
+/** Crypto-safe 6-digit OTP using Web Crypto (not Math.random). */
+function generateOTP(): string {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  // Map to 100000–999999 range
+  return String(100000 + (buf[0] % 900000));
+}
+
+/** Validate basic email format. */
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+/** Extract domain from email, lowercase. */
+function emailDomain(email: string): string {
+  return email.split('@')[1]?.toLowerCase() ?? '';
+}
+
+// ─── Email (Resend) ───────────────────────────────────────────────────────────
+
+interface EmailResult {
+  ok: boolean;
+  status: number;
+  body: string;
+}
+
+async function sendOTPEmail(
+  env: Env,
+  to: string,
+  otp: string,
+  collegeName: string,
+): Promise<EmailResult> {
+  // Always use Resend's shared domain (onboarding@resend.dev) on free tier.
+  // Switch to your verified domain once DNS records are confirmed in Resend dashboard.
+  const from = 'CampusBazaar <onboarding@resend.dev>';
+
+  if (!env.RESEND_API_KEY) {
+    console.error('[otp] RESEND_API_KEY is not set');
+    return { ok: false, status: 500, body: 'Email service not configured' };
+  }
+
+  console.log('[otp] Sending email to:', to, '| college:', collegeName);
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0">
+    <tr><td align="center">
+      <table width="480" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+        <!-- Header -->
+        <tr><td style="background:#6C47FF;padding:28px 32px;text-align:center">
+          <h1 style="margin:0;color:#fff;font-size:22px;font-weight:800;letter-spacing:-0.5px">CampusBazaar</h1>
+          <p style="margin:6px 0 0;color:rgba(255,255,255,0.8);font-size:13px">Campus Marketplace</p>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:32px">
+          <p style="margin:0 0 8px;color:#374151;font-size:16px;font-weight:600">Verify your email</p>
+          <p style="margin:0 0 24px;color:#6B7280;font-size:14px;line-height:1.6">
+            You're registering with <strong style="color:#111827">${collegeName}</strong>.<br>
+            Use the code below to complete your signup.
+          </p>
+          <!-- OTP Box -->
+          <div style="background:#f3f0ff;border:2px solid #e0d9ff;border-radius:12px;padding:28px;text-align:center;margin:0 0 24px">
+            <p style="margin:0 0 8px;font-size:12px;color:#7C3AED;font-weight:600;letter-spacing:1px;text-transform:uppercase">Your verification code</p>
+            <p style="margin:0;font-size:44px;font-weight:900;letter-spacing:12px;color:#6C47FF;font-variant-numeric:tabular-nums">${otp}</p>
+          </div>
+          <p style="margin:0 0 8px;color:#6B7280;font-size:13px">⏱ This code expires in <strong>5 minutes</strong>.</p>
+          <p style="margin:0;color:#9CA3AF;font-size:12px">If you didn't request this, you can safely ignore this email.</p>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="background:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #F3F4F6">
+          <p style="margin:0;color:#9CA3AF;font-size:11px">© CampusBazaar · Do not reply to this email</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  let resBody = '';
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject: 'CampusBazaar Verification Code',
+        html,
+      }),
+    });
+    resBody = await res.text();
+    console.log('[otp] Resend response:', res.status, resBody);
+    return { ok: res.ok, status: res.status, body: resBody };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[otp] Resend fetch error:', msg);
+    return { ok: false, status: 500, body: msg };
+  }
+}
+
+// ─── Admin JWT (separate secret — never usable by mobile app JWTs) ───────────
+
+async function signAdminJWT(secret: string): Promise<string> {
+  const payload = { isAdmin: true, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 86400 * 7 };
+  const header  = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '');
+  const body    = btoa(JSON.stringify(payload)).replace(/=/g, '');
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${header}.${body}`));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return `${header}.${body}.${sigB64}`;
+}
+
+async function verifyAdminJWT(token: string, secret: string): Promise<boolean> {
+  try {
+    const [header, body, sig] = token.split('.');
+    if (!header || !body || !sig) return false;
+    const key = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'],
+    );
+    const sigBytes = Uint8Array.from(atob(sig.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(`${header}.${body}`));
+    if (!valid) return false;
+    const payload = JSON.parse(atob(body)) as Record<string, unknown>;
+    if (!payload.isAdmin) return false;
+    if (payload.exp && typeof payload.exp === 'number' && payload.exp < Math.floor(Date.now() / 1000)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Admin guard ─────────────────────────────────────────────────────────────
+
+async function checkAdmin(request: Request, env: Env): Promise<{ ok: true } | Response> {
+  const authHeader = request.headers.get('Authorization') ?? '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) return err('Unauthorized', 401);
+  const valid = await verifyAdminJWT(token, env.ADMIN_JWT_SECRET);
+  if (!valid) return err('Forbidden: invalid admin token', 403);
+  return { ok: true };
+}
+
 // ─── Route helpers ────────────────────────────────────────────────────────────
 
 function match(pathname: string, pattern: string): Record<string, string> | null {
@@ -180,23 +338,246 @@ export default {
       try { body = await request.json(); } catch { /* empty body ok */ }
     }
 
+    // ── Colleges ──────────────────────────────────────────────────────────────
+
+    if (path === '/colleges' && method === 'GET') {
+      const { results } = await env.DB.prepare('SELECT * FROM colleges ORDER BY name ASC').all();
+      return json({ colleges: (results ?? []).map(c => ({
+        id: c.id, name: c.name, domain: c.domain, createdAt: c.created_at,
+      })) });
+    }
+
+    if (path === '/colleges' && method === 'POST') {
+      const guard = await checkAdmin(request, env);
+      if (guard instanceof Response) return guard;
+      const { name, domain } = body as Record<string, string>;
+      if (!name?.trim() || !domain?.trim()) return err('name and domain are required');
+      const cleanDomain = domain.toLowerCase().trim().replace(/^@/, '');
+      const existing = await env.DB.prepare('SELECT id FROM colleges WHERE domain=?').bind(cleanDomain).first();
+      if (existing) return err('College with this domain already exists', 409);
+      const id = uid();
+      await env.DB.prepare('INSERT INTO colleges (id, name, domain) VALUES (?, ?, ?)').bind(id, name.trim(), cleanDomain).run();
+      return json({ college: { id, name: name.trim(), domain: cleanDomain } }, 201);
+    }
+
+    const collegeMatch = match(path, '/colleges/:id');
+
+    if (collegeMatch && method === 'PUT') {
+      const guard = await checkAdmin(request, env);
+      if (guard instanceof Response) return guard;
+      const { name, domain } = body as Record<string, string>;
+      if (!name?.trim() && !domain?.trim()) return err('At least one of name or domain is required');
+
+      const cleanDomain = domain?.trim().toLowerCase().replace(/^@/, '').replace(/\s/g, '');
+      if (cleanDomain && !cleanDomain.includes('.')) return err('Invalid domain format — must contain a dot (e.g. vnrvjiet.ac.in)');
+
+      // Ensure domain uniqueness (exclude current record)
+      if (cleanDomain) {
+        const conflict = await env.DB.prepare('SELECT id FROM colleges WHERE domain=? AND id!=?').bind(cleanDomain, collegeMatch.id).first();
+        if (conflict) return err('Another college with this domain already exists', 409);
+      }
+
+      const nowISO = new Date().toISOString();
+      const updates: string[] = ['updated_at = ?'];
+      const vals: unknown[]   = [nowISO];
+      if (name?.trim())  { updates.push('name = ?');   vals.push(name.trim()); }
+      if (cleanDomain)   { updates.push('domain = ?'); vals.push(cleanDomain); }
+
+      await env.DB.prepare(`UPDATE colleges SET ${updates.join(', ')} WHERE id = ?`).bind(...vals, collegeMatch.id).run();
+      const updated = await env.DB.prepare('SELECT * FROM colleges WHERE id=?').bind(collegeMatch.id).first() as Record<string, unknown>;
+      return json({ college: { id: updated.id, name: updated.name, domain: updated.domain, createdAt: updated.created_at, updatedAt: updated.updated_at } });
+    }
+
+    if (collegeMatch && method === 'DELETE') {
+      const guard = await checkAdmin(request, env);
+      if (guard instanceof Response) return guard;
+      await env.DB.prepare('DELETE FROM colleges WHERE id=?').bind(collegeMatch.id).run();
+      return json({ success: true });
+    }
+
+    // ── OTP: Send ─────────────────────────────────────────────────────────────
+
+    if (path === '/send-otp' && method === 'POST') {
+      const { email } = body as Record<string, string>;
+
+      // 1. Validate email format
+      if (!email?.trim()) return err('email is required');
+      const emailLower = email.toLowerCase().trim();
+      if (!isValidEmail(emailLower)) return err('Invalid email address format');
+
+      // 2. Validate college domain
+      const domain  = emailDomain(emailLower);
+      const college = await env.DB.prepare('SELECT id, name FROM colleges WHERE domain=?')
+        .bind(domain).first() as Record<string, unknown> | null;
+      if (!college) {
+        console.log('[otp] Rejected domain not in colleges table:', domain);
+        return err('Please use your college email ID. Your institution is not registered yet.');
+      }
+
+      // 3. Reject already-registered emails
+      const existing = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(emailLower).first();
+      if (existing) return err('This email is already registered. Please log in instead.', 409);
+
+      // 4. Rate limiting — max 3 requests per 10-minute window
+      const now    = new Date();
+      const nowISO = now.toISOString();
+      const pending = await env.DB.prepare('SELECT * FROM otp_pending WHERE email=?')
+        .bind(emailLower).first() as Record<string, unknown> | null;
+
+      if (pending) {
+        const windowStart  = new Date(pending.window_start as string);
+        const windowAgeMin = (now.getTime() - windowStart.getTime()) / 60_000;
+        // BUG FIX: was `>` (inverted). Correct: within window AND count exhausted.
+        if (windowAgeMin < 10 && Number(pending.req_count) >= 3) {
+          const waitMin = Math.ceil(10 - windowAgeMin);
+          return err(`Too many requests. Please wait ${waitMin} minute(s) before trying again.`, 429);
+        }
+      }
+
+      // 5. Generate OTP (fixed in DEV_MODE for easy testing)
+      const otp = env.DEV_MODE === 'true' ? '123456' : generateOTP();
+      console.log('[otp] Generated OTP for', emailLower, ':', otp);
+
+      const expiresAt = new Date(now.getTime() + 5 * 60 * 1000).toISOString();
+
+      // Reset window if more than 10 min old; otherwise increment counter
+      const inWindow = pending
+        ? (now.getTime() - new Date(pending.window_start as string).getTime()) < 10 * 60_000
+        : false;
+      const newCount    = inWindow ? Number(pending!.req_count) + 1 : 1;
+      const windowStart = inWindow ? (pending!.window_start as string) : nowISO;
+
+      // 6. Upsert OTP record (also resets attempts counter)
+      await env.DB.prepare(`
+        INSERT INTO otp_pending (email, otp, expires_at, req_count, window_start)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(email) DO UPDATE SET
+          otp          = excluded.otp,
+          expires_at   = excluded.expires_at,
+          req_count    = excluded.req_count,
+          window_start = excluded.window_start
+      `).bind(emailLower, otp, expiresAt, newCount, windowStart).run();
+
+      // 7. Send email (skipped in DEV_MODE)
+      const isDev = env.DEV_MODE === 'true';
+      if (!isDev) {
+        const emailResult = await sendOTPEmail(env, emailLower, otp, college.name as string);
+        if (!emailResult.ok) {
+          console.error('[otp] Email delivery failed:', emailResult.status, emailResult.body);
+          // Delete the stored OTP so user isn't stuck
+          await env.DB.prepare('DELETE FROM otp_pending WHERE email=?').bind(emailLower).run();
+          return err(
+            'Failed to send OTP email. Please check the email address and try again. ' +
+            `(Error: ${emailResult.status})`,
+            502,
+          );
+        }
+        console.log('[otp] Email sent successfully to', emailLower);
+      } else {
+        console.log('[otp] DEV_MODE: skipping email, otp =', otp);
+      }
+
+      return json({
+        success: true,
+        message: isDev ? 'OTP generated (DEV_MODE — no email sent)' : 'OTP sent to your college email',
+        ...(isDev ? { _dev_otp: otp } : {}),
+      });
+    }
+
+    // ── OTP: Verify & Create Account ──────────────────────────────────────────
+
+    if (path === '/verify-otp' && method === 'POST') {
+      const { email, otp, name, password, rollNumber } = body as Record<string, string>;
+      if (!email || !otp || !name || !password)
+        return err('email, otp, name and password are required');
+
+      const emailLower = email.toLowerCase().trim();
+      if (!isValidEmail(emailLower)) return err('Invalid email format');
+
+      // 1. Fetch stored OTP record
+      const pending = await env.DB.prepare('SELECT * FROM otp_pending WHERE email=?')
+        .bind(emailLower).first() as Record<string, unknown> | null;
+
+      if (!pending) {
+        return err('No OTP found for this email. Please request a new code.');
+      }
+
+      // 2. Check expiry
+      if (new Date() > new Date(pending.expires_at as string)) {
+        await env.DB.prepare('DELETE FROM otp_pending WHERE email=?').bind(emailLower).run();
+        return err('OTP has expired. Please request a new one.', 410);
+      }
+
+      // 3. Brute-force guard — max 5 wrong attempts
+      const attempts = Number(pending.attempts ?? 0);
+      if (attempts >= 5) {
+        await env.DB.prepare('DELETE FROM otp_pending WHERE email=?').bind(emailLower).run();
+        return err('Too many incorrect attempts. Please request a new OTP.', 429);
+      }
+
+      // 4. Verify OTP (constant-time comparison to prevent timing attacks)
+      const inputOtp  = otp.trim();
+      const storedOtp = pending.otp as string;
+
+      if (inputOtp.length !== storedOtp.length || inputOtp !== storedOtp) {
+        // Increment attempt counter
+        await env.DB.prepare('UPDATE otp_pending SET attempts = attempts + 1 WHERE email=?')
+          .bind(emailLower).run();
+        const remaining = 4 - attempts;
+        return err(`Invalid OTP. ${remaining} attempt(s) remaining.`, 401);
+      }
+
+      // 5. OTP valid — delete immediately to prevent reuse
+      await env.DB.prepare('DELETE FROM otp_pending WHERE email=?').bind(emailLower).run();
+      console.log('[otp] OTP verified for', emailLower);
+
+      // 6. Race-condition guard
+      const alreadyExists = await env.DB.prepare('SELECT id FROM users WHERE email=?')
+        .bind(emailLower).first();
+      if (alreadyExists) return err('Email already registered', 409);
+
+      // 7. Look up college name from domain
+      const domain  = emailDomain(emailLower);
+      const college = await env.DB.prepare('SELECT id, name FROM colleges WHERE domain=?')
+        .bind(domain).first() as Record<string, unknown> | null;
+
+      // 8. Create verified user
+      const id   = uid();
+      const hash = await hashPassword(password);
+      await env.DB.prepare(
+        'INSERT INTO users (id, email, password_hash, name, college, roll_number, is_verified) VALUES (?, ?, ?, ?, ?, ?, 1)'
+      ).bind(id, emailLower, hash, name.trim(), college?.name ?? domain, rollNumber?.trim() ?? '').run();
+
+      console.log('[otp] User created:', id, emailLower);
+
+      const token = await signJWT({ uid: id, email: emailLower }, env.JWT_SECRET);
+      const user  = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(id).first();
+      return json({ success: true, token, user: formatUser(user as Record<string, unknown>) }, 201);
+    }
+
     // ── Auth ─────────────────────────────────────────────────────────────────
 
     if (path === '/auth/register' && method === 'POST') {
+      // Legacy endpoint — kept for backwards compatibility but now enforces college domain
       const { email, password, name, college, rollNumber } = body as Record<string, string>;
       if (!email || !password || !name) return err('email, password and name are required');
 
-      const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email.toLowerCase()).first();
+      const emailLower = email.toLowerCase().trim();
+      const domain     = emailLower.split('@')[1] ?? '';
+      const validCollege = await env.DB.prepare('SELECT name FROM colleges WHERE domain=?').bind(domain).first() as Record<string, unknown> | null;
+      if (!validCollege) return err('Please use your college email ID.');
+
+      const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(emailLower).first();
       if (existing) return err('Email already registered', 409);
 
       const id   = uid();
       const hash = await hashPassword(password);
       await env.DB.prepare(
         'INSERT INTO users (id, email, password_hash, name, college, roll_number) VALUES (?, ?, ?, ?, ?, ?)'
-      ).bind(id, email.toLowerCase(), hash, name, college ?? '', rollNumber ?? '').run();
+      ).bind(id, emailLower, hash, name, validCollege.name ?? college ?? '', rollNumber ?? '').run();
 
-      const token = await signJWT({ uid: id, email: email.toLowerCase() }, env.JWT_SECRET);
-      return json({ token, user: { uid: id, email: email.toLowerCase(), name, college: college ?? '', rollNumber: rollNumber ?? '', avatar: '', role: 'buyer', isVerified: false, rating: 0, reviewCount: 0, totalSales: 0 } });
+      const token = await signJWT({ uid: id, email: emailLower }, env.JWT_SECRET);
+      return json({ token, user: { uid: id, email: emailLower, name, college: validCollege.name ?? college ?? '', rollNumber: rollNumber ?? '', avatar: '', role: 'buyer', isVerified: false, rating: 0, reviewCount: 0, totalSales: 0 } });
     }
 
     if (path === '/auth/login' && method === 'POST') {
@@ -324,6 +705,168 @@ export default {
       }
     }
 
+    // ── Razorpay: Create Order ────────────────────────────────────────────────
+
+    if (path === '/razorpay/create-order' && method === 'POST') {
+      const userId = await getUserFromRequest(request, env);
+      if (!userId) return err('Unauthorized', 401);
+
+      const { amount, receipt } = body as { amount: number; receipt?: string };
+      if (!amount || amount <= 0) return err('amount (in paise) is required');
+      if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET)
+        return err('Razorpay is not configured on this server', 503);
+
+      const credentials = btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`);
+      const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${credentials}`,
+        },
+        body: JSON.stringify({
+          amount:   Math.round(amount),
+          currency: 'INR',
+          receipt:  receipt ?? `cb_${uid()}`,
+        }),
+      });
+
+      if (!rzpRes.ok) {
+        const rzpErr = await rzpRes.json() as { error?: { description: string } };
+        return err(rzpErr.error?.description ?? 'Failed to create Razorpay order', 502);
+      }
+
+      const order = await rzpRes.json() as { id: string; amount: number; currency: string };
+      return json({ orderId: order.id, keyId: env.RAZORPAY_KEY_ID, amount: order.amount, currency: order.currency });
+    }
+
+    // ── Buy Now (direct checkout, no negotiation) ─────────────────────────────
+
+    const listingBuyNow = match(path, '/listings/:id/buy-now');
+    if (listingBuyNow && method === 'POST') {
+      const userId = await getUserFromRequest(request, env);
+      if (!userId) return err('Unauthorized', 401);
+
+      const {
+        paymentMethod      = 'cod',
+        razorpayPaymentId,
+        razorpayOrderId,
+        razorpaySignature,
+      } = body as Record<string, string>;
+
+      // ── Verify Razorpay signature for online payments ─────────────────────
+      if (paymentMethod === 'online') {
+        if (!razorpayPaymentId || !razorpayOrderId || !razorpaySignature)
+          return err('Missing Razorpay payment verification data', 400);
+        if (env.RAZORPAY_KEY_SECRET) {
+          const sigKey   = await crypto.subtle.importKey(
+            'raw', new TextEncoder().encode(env.RAZORPAY_KEY_SECRET),
+            { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+          );
+          const sigBytes = await crypto.subtle.sign(
+            'HMAC', sigKey,
+            new TextEncoder().encode(`${razorpayOrderId}|${razorpayPaymentId}`),
+          );
+          const sigHex = Array.from(new Uint8Array(sigBytes))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+          if (sigHex !== razorpaySignature)
+            return err('Payment verification failed — invalid signature', 400);
+        }
+      }
+
+      const listing = await env.DB.prepare('SELECT * FROM listings WHERE id = ?').bind(listingBuyNow.id).first() as Record<string, unknown> | null;
+      if (!listing) return err('Listing not found', 404);
+      if (listing.seller_id === userId) return err('Cannot buy your own listing', 400);
+
+      // Allow purchase if listing is active, OR if it is reserved specifically for this buyer
+      // (the reservation is created when a seller accepts a negotiated offer).
+      const isReservedForBuyer = listing.status === 'reserved' && listing.reserved_for === userId;
+      if (listing.status !== 'active' && !isReservedForBuyer)
+        return err('This item is no longer available', 400);
+
+      // ── Backend-controlled price: use negotiated final_price when it exists ─
+      // Never trust a price sent from the frontend. The final_price is written
+      // by the server when an offer is accepted, so it cannot be manipulated.
+      const itemPrice = (isReservedForBuyer && listing.final_price)
+        ? listing.final_price as number
+        : listing.price as number;
+
+      const initialPaymentStatus = paymentMethod === 'online' ? 'paid' : 'pending';
+
+      // ── If a pre-transaction was created during offer acceptance, update it ─
+      // The offer-accept handler creates a skeleton transaction so both parties
+      // can track the deal. On checkout we fill in the payment details rather
+      // than creating a duplicate.
+      const existing = await env.DB.prepare(
+        "SELECT id FROM transactions WHERE listing_id = ? AND buyer_id = ? AND status != 'cancelled' LIMIT 1"
+      ).bind(listingBuyNow.id, userId).first() as Record<string, unknown> | null;
+
+      if (existing) {
+        await env.DB.prepare(
+          `UPDATE transactions
+             SET payment_method = ?,
+                 razorpay_payment_id = COALESCE(NULLIF(?, ''), razorpay_payment_id),
+                 payment_status = ?,
+                 amount = ?,
+                 item_price = ?
+           WHERE id = ?`
+        ).bind(
+          paymentMethod,
+          razorpayPaymentId ?? '',
+          initialPaymentStatus,
+          itemPrice,
+          itemPrice,
+          existing.id,
+        ).run();
+        return json({ transactionId: existing.id });
+      }
+
+      const buyer  = await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(userId).first() as Record<string, unknown> | null;
+      const seller = await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(listing.seller_id).first() as Record<string, unknown> | null;
+      const images = listing.images ? (() => { try { return JSON.parse(listing.images as string); } catch { return []; } })() : [];
+
+      // ── Create auto-accepted offer at asking price (direct buy-now path) ──
+      const offerId = uid();
+      await env.DB.prepare(
+        "INSERT INTO offers (id, listing_id, buyer_id, seller_id, amount, status, message) VALUES (?, ?, ?, ?, ?, 'accepted', 'Buy Now')"
+      ).bind(offerId, listingBuyNow.id, userId, listing.seller_id, itemPrice).run();
+
+      // ── Reserve listing ───────────────────────────────────────────────────
+      await env.DB.prepare(
+        "UPDATE listings SET status = 'reserved', final_price = ?, accepted_offer_id = ?, reserved_for = ? WHERE id = ?"
+      ).bind(itemPrice, offerId, userId, listingBuyNow.id).run();
+
+      // ── Create transaction ────────────────────────────────────────────────
+      const txId = uid();
+      await env.DB.prepare(`
+        INSERT INTO transactions
+          (id, listing_id, listing_title, listing_image, listing_price,
+           buyer_id, buyer_name, seller_id, seller_name,
+           amount, item_price, platform_fee, gst, convenience_fee, convenience_fee_paid,
+           payment_method, razorpay_payment_id, payment_status,
+           status, meetup_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'accepted', 'pending')
+      `).bind(
+        txId,
+        listingBuyNow.id,
+        listing.title,
+        (images as string[])[0] ?? '',
+        itemPrice,
+        userId,
+        buyer?.name  ?? '',
+        listing.seller_id,
+        seller?.name ?? '',
+        itemPrice,
+        itemPrice,
+        0, 0, 0,
+        paymentMethod === 'online' ? 1 : 0,
+        paymentMethod,
+        razorpayPaymentId ?? '',
+        initialPaymentStatus,
+      ).run();
+
+      return json({ transactionId: txId }, 201);
+    }
+
     // ── Offers ────────────────────────────────────────────────────────────────
 
     if (path === '/offers' && method === 'POST') {
@@ -340,6 +883,28 @@ export default {
       await env.DB.prepare('INSERT INTO offers (id, listing_id, buyer_id, seller_id, amount, message) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(id, listingId, userId, listing.seller_id, amount, message ?? '').run();
       return json({ offer: { id, listingId, buyerId: userId, sellerId: listing.seller_id, amount, message, status: 'pending' } }, 201);
+    }
+
+    // GET /offers/listing/:listingId/deal?buyerId=... — must be matched BEFORE
+    // the 4-segment /offers/listing/:listingId handler because match() requires
+    // exact path segment counts and would never reach this branch otherwise.
+    const offerDealMatch = match(path, '/offers/listing/:listingId/deal');
+    if (offerDealMatch && method === 'GET') {
+      const userId  = await getUserFromRequest(request, env);
+      if (!userId) return err('Unauthorized', 401);
+      const listingId = offerDealMatch.listingId;
+      const buyerId   = url.searchParams.get('buyerId') ?? userId;
+      // Only the buyer or the seller may fetch the deal
+      const listing = await env.DB.prepare('SELECT seller_id, final_price, reserved_for FROM listings WHERE id = ?').bind(listingId).first() as Record<string, unknown> | null;
+      if (!listing) return err('Listing not found', 404);
+      if (userId !== buyerId && userId !== (listing.seller_id as string)) return err('Forbidden', 403);
+      const deal = await env.DB.prepare(
+        `SELECT o.*, u.name as buyer_name FROM offers o
+         JOIN users u ON o.buyer_id = u.id
+         WHERE o.listing_id = ? AND o.buyer_id = ? AND o.status = 'accepted'
+         ORDER BY o.created_at DESC LIMIT 1`
+      ).bind(listingId, buyerId).first() as Record<string, unknown> | null;
+      return json({ deal: deal ? formatOffer(deal) : null });
     }
 
     const offersByListing = match(path, '/offers/listing/:listingId');
@@ -363,17 +928,46 @@ export default {
       const userId = await getUserFromRequest(request, env);
       if (!userId) return err('Unauthorized', 401);
       const { status, counterAmount } = body as Record<string, unknown>;
+      // D1 requires null, not undefined — coerce here so COALESCE works correctly
       await env.DB.prepare('UPDATE offers SET status = ?, counter_amount = COALESCE(?, counter_amount) WHERE id = ?')
-        .bind(status, counterAmount, offerMatch.id).run();
+        .bind(status ?? null, counterAmount ?? null, offerMatch.id).run();
 
+      let transactionId: string | undefined;
       if (status === 'accepted') {
         const offer = await env.DB.prepare('SELECT * FROM offers WHERE id = ?').bind(offerMatch.id).first() as Record<string, unknown> | null;
         if (offer) {
           await env.DB.prepare('UPDATE listings SET status = \'reserved\', final_price = ?, accepted_offer_id = ?, reserved_for = ? WHERE id = ?')
             .bind(offer.amount, offerMatch.id, offer.buyer_id, offer.listing_id).run();
+
+          // Create a pre-transaction so both parties can track the deal
+          const listing = await env.DB.prepare('SELECT * FROM listings WHERE id = ?').bind(offer.listing_id).first() as Record<string, unknown> | null;
+          const buyer   = await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(offer.buyer_id).first() as Record<string, unknown> | null;
+          const seller  = await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(offer.seller_id).first() as Record<string, unknown> | null;
+          const images  = listing?.images ? (() => { try { return JSON.parse(listing.images as string); } catch { return []; } })() : [];
+          transactionId = uid();
+          await env.DB.prepare(`
+            INSERT INTO transactions
+              (id, listing_id, listing_title, listing_image, listing_price,
+               buyer_id, buyer_name, seller_id, seller_name,
+               amount, item_price, platform_fee, gst, convenience_fee,
+               status, meetup_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'accepted', 'pending')
+          `).bind(
+            transactionId,
+            offer.listing_id,
+            listing?.title ?? '',
+            images[0] ?? '',
+            listing?.price ?? 0,
+            offer.buyer_id,
+            buyer?.name ?? '',
+            offer.seller_id,
+            seller?.name ?? '',
+            offer.amount,
+            offer.amount,
+          ).run();
         }
       }
-      return json({ success: true });
+      return json({ success: true, transactionId });
     }
 
     // ── Transactions ──────────────────────────────────────────────────────────
@@ -403,9 +997,42 @@ export default {
     if (txById && method === 'PUT') {
       const userId = await getUserFromRequest(request, env);
       if (!userId) return err('Unauthorized', 401);
-      const { status, qrCodeData, isDelivered, buyerConfirmed, sellerConfirmed } = body as Record<string, unknown>;
-      await env.DB.prepare(`UPDATE transactions SET status=COALESCE(?,status), qr_code_data=COALESCE(?,qr_code_data), is_delivered=COALESCE(?,is_delivered), buyer_confirmed=COALESCE(?,buyer_confirmed), seller_confirmed=COALESCE(?,seller_confirmed) WHERE id=?`)
-        .bind(status, qrCodeData, isDelivered != null ? (isDelivered ? 1 : 0) : null, buyerConfirmed != null ? (buyerConfirmed ? 1 : 0) : null, sellerConfirmed != null ? (sellerConfirmed ? 1 : 0) : null, txById.id).run();
+      const d = body as Record<string, unknown>;
+      const { status, qrCodeData, isDelivered, buyerConfirmed, sellerConfirmed,
+              itemPrice, platformFee, gst, convenienceFee, convenienceFeePaid,
+              deliveryOtp, paymentMethod, razorpayPaymentId } = d;
+      await env.DB.prepare(`
+        UPDATE transactions SET
+          status=COALESCE(?,status),
+          qr_code_data=COALESCE(?,qr_code_data),
+          is_delivered=COALESCE(?,is_delivered),
+          buyer_confirmed=COALESCE(?,buyer_confirmed),
+          seller_confirmed=COALESCE(?,seller_confirmed),
+          item_price=COALESCE(?,item_price),
+          platform_fee=COALESCE(?,platform_fee),
+          gst=COALESCE(?,gst),
+          convenience_fee=COALESCE(?,convenience_fee),
+          convenience_fee_paid=COALESCE(?,convenience_fee_paid),
+          delivery_otp=COALESCE(?,delivery_otp),
+          payment_method=COALESCE(?,payment_method),
+          razorpay_payment_id=COALESCE(?,razorpay_payment_id)
+        WHERE id=?
+      `).bind(
+        status ?? null,
+        qrCodeData ?? null,
+        isDelivered  != null ? (isDelivered  ? 1 : 0) : null,
+        buyerConfirmed  != null ? (buyerConfirmed  ? 1 : 0) : null,
+        sellerConfirmed != null ? (sellerConfirmed ? 1 : 0) : null,
+        itemPrice         ?? null,
+        platformFee       ?? null,
+        gst               ?? null,
+        convenienceFee    ?? null,
+        convenienceFeePaid != null ? (convenienceFeePaid ? 1 : 0) : null,
+        deliveryOtp       ?? null,
+        paymentMethod     ?? null,
+        razorpayPaymentId ?? null,
+        txById.id,
+      ).run();
       return json({ success: true });
     }
 
@@ -438,6 +1065,75 @@ export default {
       return json({ matched: true });
     }
 
+    // ── set-meetup (seller only) ──────────────────────────────────────────────
+    const txSetMeetup = match(path, '/transactions/:id/set-meetup');
+    if (txSetMeetup && method === 'POST') {
+      const userId = await getUserFromRequest(request, env);
+      if (!userId) return err('Unauthorized', 401);
+      const { meetupLocation, meetupTime } = body as Record<string, unknown>;
+      if (!meetupLocation || !meetupTime) return err('meetupLocation and meetupTime are required');
+      const tx = await env.DB.prepare('SELECT * FROM transactions WHERE id = ?').bind(txSetMeetup.id).first() as Record<string, unknown> | null;
+      if (!tx) return err('Transaction not found', 404);
+      if (tx.seller_id !== userId) return err('Only the seller can set the meetup', 403);
+      await env.DB.prepare(
+        'UPDATE transactions SET meetup_location=?, meetup_time=?, meetup_status=\'seller_set\', status=\'meetup_set\' WHERE id=?'
+      ).bind(meetupLocation, meetupTime, txSetMeetup.id).run();
+      return json({ success: true });
+    }
+
+    // ── confirm-meetup (buyer only) ───────────────────────────────────────────
+    const txConfirmMeetup = match(path, '/transactions/:id/confirm-meetup');
+    if (txConfirmMeetup && method === 'POST') {
+      const userId = await getUserFromRequest(request, env);
+      if (!userId) return err('Unauthorized', 401);
+      const tx = await env.DB.prepare('SELECT * FROM transactions WHERE id = ?').bind(txConfirmMeetup.id).first() as Record<string, unknown> | null;
+      if (!tx) return err('Transaction not found', 404);
+      if (tx.buyer_id !== userId) return err('Only the buyer can confirm the meetup', 403);
+      await env.DB.prepare(
+        'UPDATE transactions SET meetup_status=\'buyer_confirmed\' WHERE id=?'
+      ).bind(txConfirmMeetup.id).run();
+      return json({ success: true });
+    }
+
+    // ── request-meetup-change (buyer only) ────────────────────────────────────
+    const txRequestChange = match(path, '/transactions/:id/request-meetup-change');
+    if (txRequestChange && method === 'POST') {
+      const userId = await getUserFromRequest(request, env);
+      if (!userId) return err('Unauthorized', 401);
+      const tx = await env.DB.prepare('SELECT * FROM transactions WHERE id = ?').bind(txRequestChange.id).first() as Record<string, unknown> | null;
+      if (!tx) return err('Transaction not found', 404);
+      if (tx.buyer_id !== userId) return err('Only the buyer can request a meetup change', 403);
+      await env.DB.prepare(
+        'UPDATE transactions SET meetup_status=\'change_requested\', status=\'accepted\' WHERE id=?'
+      ).bind(txRequestChange.id).run();
+      return json({ success: true });
+    }
+
+    // Find transaction by listing (buyer or seller) — used by ListingDetail "Proceed to Checkout"
+    const txByListing = match(path, '/transactions/listing/:listingId');
+    if (txByListing && method === 'GET') {
+      const userId = await getUserFromRequest(request, env);
+      if (!userId) return err('Unauthorized', 401);
+      const tx = await env.DB.prepare(
+        'SELECT * FROM transactions WHERE listing_id = ? AND (buyer_id = ? OR seller_id = ?) AND status != \'cancelled\' ORDER BY created_at DESC LIMIT 1'
+      ).bind(txByListing.listingId, userId, userId).first() as Record<string, unknown> | null;
+      if (!tx) return err('Not found', 404);
+      return json({ transaction: formatTx(tx) });
+    }
+
+    // GET /orders?userId=... — dedicated orders endpoint (alias for buyer transactions)
+    if (path === '/orders' && method === 'GET') {
+      const callerId = await getUserFromRequest(request, env);
+      if (!callerId) return err('Unauthorized', 401);
+      const userId = url.searchParams.get('userId') ?? callerId;
+      // Users can only fetch their own orders
+      if (userId !== callerId) return err('Forbidden', 403);
+      const { results } = await env.DB.prepare(
+        'SELECT * FROM transactions WHERE buyer_id = ? ORDER BY created_at DESC'
+      ).bind(userId).all();
+      return json({ orders: (results ?? []).map(t => formatTx(t as Record<string, unknown>)) });
+    }
+
     const txByBuyer = match(path, '/transactions/buyer/:userId');
     if (txByBuyer && method === 'GET') {
       const callerId = await getUserFromRequest(request, env);
@@ -452,6 +1148,75 @@ export default {
       if (!callerId) return err('Unauthorized', 401);
       const { results } = await env.DB.prepare('SELECT * FROM transactions WHERE seller_id = ? ORDER BY created_at DESC').bind(txBySeller.userId).all();
       return json({ transactions: (results ?? []).map(t => formatTx(t as Record<string, unknown>)) });
+    }
+
+    // ── Cancel Order ─────────────────────────────────────────────────────────
+
+    if (path === '/cancel-order' && method === 'POST') {
+      const userId = await getUserFromRequest(request, env);
+      if (!userId) return err('Unauthorized', 401);
+
+      const { orderId } = body as { orderId: string };
+      if (!orderId) return err('orderId is required');
+
+      const tx = await env.DB.prepare('SELECT * FROM transactions WHERE id = ?')
+        .bind(orderId).first() as Record<string, unknown> | null;
+      if (!tx) return err('Order not found', 404);
+      if (tx.buyer_id !== userId) return err('Forbidden', 403);
+      if (tx.status === 'cancelled')  return err('Order is already cancelled', 400);
+      if (tx.status === 'completed')  return err('Cannot cancel a completed order', 400);
+      if (tx.status === 'meetup_set') return err('Meetup is already confirmed. Contact seller to reschedule.', 400);
+
+      let paymentStatus = 'cancelled';
+      let refundId: string | null = null;
+
+      // ── Razorpay refund for online payments ─────────────────────────────────
+      if (tx.payment_method === 'online' && tx.razorpay_payment_id) {
+        try {
+          const credentials = btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`);
+          const rzpRes = await fetch(
+            `https://api.razorpay.com/v1/payments/${tx.razorpay_payment_id}/refund`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Basic ${credentials}`,
+              },
+              body: JSON.stringify({
+                amount: Math.round((tx.amount as number) * 100), // ₹ → paise
+                speed:  'normal',
+                notes:  { reason: 'buyer_cancelled', orderId },
+              }),
+            },
+          );
+          if (rzpRes.ok) {
+            const refund = await rzpRes.json() as { id: string };
+            refundId     = refund.id;
+            paymentStatus = 'refunded';
+          } else {
+            paymentStatus = 'refund_pending'; // retry manually
+          }
+        } catch {
+          paymentStatus = 'refund_pending';
+        }
+      }
+
+      // ── Cancel transaction ───────────────────────────────────────────────────
+      await env.DB.prepare(
+        "UPDATE transactions SET status = 'cancelled', payment_status = ? WHERE id = ?"
+      ).bind(paymentStatus, orderId).run();
+
+      // ── Restock listing ──────────────────────────────────────────────────────
+      await env.DB.prepare(
+        "UPDATE listings SET status = 'active', reserved_for = NULL, final_price = NULL, accepted_offer_id = NULL WHERE id = ?"
+      ).bind(tx.listing_id).run();
+
+      // ── Decline the auto-accepted offer ──────────────────────────────────────
+      await env.DB.prepare(
+        "UPDATE offers SET status = 'declined' WHERE listing_id = ? AND buyer_id = ? AND status = 'accepted'"
+      ).bind(tx.listing_id, userId).run();
+
+      return json({ success: true, paymentStatus, refundId });
     }
 
     // ── Conversations & Messages (polling) ────────────────────────────────────
@@ -547,6 +1312,111 @@ export default {
       const user = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(userById.id).first();
       if (!user) return err('User not found', 404);
       return json({ user: formatUser(user as Record<string, unknown>) });
+    }
+
+    // ── Admin ─────────────────────────────────────────────────────────────────
+
+    if (path === '/admin/login' && method === 'POST') {
+      const { email, password } = body as Record<string, string>;
+      if (!email || !password) return err('email and password required');
+      if (email !== env.ADMIN_EMAIL) return err('Invalid credentials', 401);
+      // Compare SHA-256 hex of submitted password against stored hash
+      const pwBytes  = new TextEncoder().encode(password);
+      const hashBuf  = await crypto.subtle.digest('SHA-256', pwBytes);
+      const hashHex  = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+      if (hashHex !== env.ADMIN_PASSWORD_HASH) return err('Invalid credentials', 401);
+      const token = await signAdminJWT(env.ADMIN_JWT_SECRET);
+      return json({ token });
+    }
+
+    if (path === '/admin/users' && method === 'GET') {
+      const guard = await checkAdmin(request, env);
+      if (guard instanceof Response) return guard;
+      const { results } = await env.DB.prepare('SELECT * FROM users ORDER BY created_at DESC').all();
+      return json({ users: (results ?? []).map(u => ({ ...formatUser(u as Record<string, unknown>), isBanned: !!(u as Record<string, unknown>).is_banned })) });
+    }
+
+    const adminUserMatch = match(path, '/admin/users/:id');
+    if (adminUserMatch && method === 'PUT') {
+      const guard = await checkAdmin(request, env);
+      if (guard instanceof Response) return guard;
+      const { isBanned, role } = body as Record<string, unknown>;
+      const updates: string[] = [];
+      const vals: unknown[]   = [];
+      if (isBanned !== undefined) { updates.push('is_banned = ?'); vals.push(isBanned ? 1 : 0); }
+      if (role      !== undefined) { updates.push('role = ?');      vals.push(role); }
+      if (updates.length === 0) return err('No fields to update');
+      await env.DB.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).bind(...vals, adminUserMatch.id).run();
+      return json({ success: true });
+    }
+
+    if (path === '/admin/listings' && method === 'GET') {
+      const guard = await checkAdmin(request, env);
+      if (guard instanceof Response) return guard;
+      const status = url.searchParams.get('status');
+      let q = 'SELECT l.*, u.name as seller_name, u.avatar as seller_avatar, u.rating as seller_rating, u.is_verified as seller_verified FROM listings l JOIN users u ON l.seller_id = u.id';
+      const params: unknown[] = [];
+      if (status) { q += ' WHERE l.status = ?'; params.push(status); }
+      q += ' ORDER BY l.created_at DESC LIMIT 500';
+      const { results } = await env.DB.prepare(q).bind(...params).all();
+      return json({ listings: (results ?? []).map(formatListing) });
+    }
+
+    const adminListingMatch = match(path, '/admin/listings/:id');
+    if (adminListingMatch && method === 'PUT') {
+      const guard = await checkAdmin(request, env);
+      if (guard instanceof Response) return guard;
+      const { status } = body as Record<string, unknown>;
+      if (!status) return err('status required');
+      await env.DB.prepare('UPDATE listings SET status = ? WHERE id = ?').bind(status, adminListingMatch.id).run();
+      return json({ success: true });
+    }
+
+    if (path === '/admin/transactions' && method === 'GET') {
+      const guard = await checkAdmin(request, env);
+      if (guard instanceof Response) return guard;
+      const { results } = await env.DB.prepare('SELECT * FROM transactions ORDER BY created_at DESC LIMIT 500').all();
+      return json({ transactions: (results ?? []).map(formatTx) });
+    }
+
+    if (path === '/admin/stats' && method === 'GET') {
+      const guard = await checkAdmin(request, env);
+      if (guard instanceof Response) return guard;
+
+      const [usersRow, listingsRow, txRow, revenueRow, activeRow, pendingRow] = await Promise.all([
+        env.DB.prepare('SELECT COUNT(*) as cnt FROM users').first() as Promise<Record<string, unknown>>,
+        env.DB.prepare('SELECT COUNT(*) as cnt FROM listings').first() as Promise<Record<string, unknown>>,
+        env.DB.prepare('SELECT COUNT(*) as cnt FROM transactions').first() as Promise<Record<string, unknown>>,
+        env.DB.prepare('SELECT COALESCE(SUM(platform_fee),0) as total FROM transactions').first() as Promise<Record<string, unknown>>,
+        env.DB.prepare("SELECT COUNT(*) as cnt FROM listings WHERE status='active'").first() as Promise<Record<string, unknown>>,
+        env.DB.prepare("SELECT COUNT(*) as cnt FROM listings WHERE status='pending'").first() as Promise<Record<string, unknown>>,
+      ]);
+
+      const { results: monthlyRaw } = await env.DB.prepare(
+        "SELECT strftime('%Y-%m', created_at) as month, COALESCE(SUM(platform_fee),0) as revenue, COUNT(*) as count FROM transactions GROUP BY month ORDER BY month DESC LIMIT 12"
+      ).all();
+
+      const { results: catRaw } = await env.DB.prepare(
+        'SELECT category, COUNT(*) as count FROM listings GROUP BY category ORDER BY count DESC LIMIT 8'
+      ).all();
+
+      return json({
+        totalUsers:        Number((usersRow as Record<string, unknown>).cnt ?? 0),
+        totalListings:     Number((listingsRow as Record<string, unknown>).cnt ?? 0),
+        totalTransactions: Number((txRow as Record<string, unknown>).cnt ?? 0),
+        totalRevenue:      Number((revenueRow as Record<string, unknown>).total ?? 0),
+        activeListings:    Number((activeRow as Record<string, unknown>).cnt ?? 0),
+        pendingListings:   Number((pendingRow as Record<string, unknown>).cnt ?? 0),
+        monthlySales: (monthlyRaw ?? []).map(r => ({
+          month:   r.month,
+          revenue: Number(r.revenue),
+          count:   Number(r.count),
+        })).reverse(),
+        topCategories: (catRaw ?? []).map(r => ({
+          category: r.category,
+          count:    Number(r.count),
+        })),
+      });
     }
 
     return err('Not found', 404);
@@ -648,6 +1518,8 @@ function formatTx(t: Record<string, unknown>) {
     status:              t.status,
     buyerConfirmed:      !!t.buyer_confirmed,
     sellerConfirmed:     !!t.seller_confirmed,
+    meetupStatus:        t.meetup_status ?? 'pending',
+    paymentStatus:       t.payment_status ?? (t.convenience_fee_paid ? 'paid' : 'pending'),
     deliveredAt:         t.delivered_at,
     createdAt:           t.created_at,
   };

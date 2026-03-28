@@ -44,5 +44,9 @@ export function useSellerReviews(sellerId: string | undefined) {
       .finally(() => setLoading(false));
   }, [sellerId]);
 
-  return { reviews, loading };
+  const avgRating = reviews.length
+    ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+    : 0;
+
+  return { reviews, loading, avgRating };
 }

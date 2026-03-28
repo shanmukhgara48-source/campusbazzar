@@ -2,7 +2,7 @@
  * Auth service — backed by Cloudflare Worker JWT auth (no Firebase).
  * Preserves the same DBUser shape so existing screens need no changes.
  */
-import { authApi, setToken, clearToken, ApiUser } from './api';
+import { authApi, otpApi, setToken, clearToken, ApiUser } from './api';
 
 export interface DBUser {
   uid: string;
@@ -80,4 +80,33 @@ export async function getStoredUser(): Promise<DBUser | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * sendOtp — validates college domain on backend, sends OTP email.
+ * Throws if domain is not registered or rate-limited.
+ */
+export async function sendOtp(email: string): Promise<void> {
+  await otpApi.sendOtp(email.trim().toLowerCase());
+}
+
+/**
+ * verifyOtp — submits OTP + user details. On success stores JWT and returns user.
+ */
+export async function verifyOtp(
+  email: string,
+  otp: string,
+  name: string,
+  password: string,
+  rollNumber?: string,
+): Promise<DBUser> {
+  const { token, user } = await otpApi.verifyOtp(
+    email.trim().toLowerCase(),
+    otp.trim(),
+    name.trim(),
+    password,
+    rollNumber?.trim(),
+  );
+  await setToken(token);
+  return apiUserToDBUser(user);
 }

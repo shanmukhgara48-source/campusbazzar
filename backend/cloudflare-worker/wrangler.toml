@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ALLOWED_ORIGIN = "*"
+DEV_MODE = "true"
 
 # ─── D1 Database ──────────────────────────────────────────────────────────────
 # Step 1: npx wrangler d1 create campusbazaar

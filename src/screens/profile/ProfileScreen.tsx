@@ -46,6 +46,7 @@ export default function ProfileScreen({ navigation }: Props) {
 
   const menuItems = [
     { icon: 'create-outline',           label: 'Edit Profile',          onPress: () => navigation.navigate('EditProfile') },
+    { icon: 'cube-outline',             label: 'Orders',                                          onPress: () => navigation.navigate('Orders') },
     { icon: 'list-outline',             label: 'My Listings',           count: myListings.length, onPress: () => navigation.navigate('SellerDashboard') },
     { icon: 'heart-outline',            label: 'Saved Items',           count: savedIds.size,     onPress: () => navigation.navigate('SavedItems') },
     { icon: 'receipt-outline',          label: 'Transaction History',                             onPress: () => navigation.navigate('TransactionHistory') },
@@ -54,10 +55,6 @@ export default function ProfileScreen({ navigation }: Props) {
     { icon: 'shield-checkmark-outline', label: 'Privacy & Safety',                               onPress: () => {} },
     { icon: 'help-circle-outline',      label: 'Help & Support',                                  onPress: () => {} },
   ];
-
-  if (role === 'admin') {
-    menuItems.push({ icon: 'settings-outline', label: 'Admin Panel', onPress: () => navigation.navigate('AdminPanel') });
-  }
 
   const bannerColors: [string, string] = ['#0f3a24', '#1a5c3a'];
 

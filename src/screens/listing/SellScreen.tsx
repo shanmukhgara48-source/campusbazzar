@@ -134,7 +134,7 @@ export default function SellScreen() {
         <Text style={styles.headerSubtitle}>Sell your items to fellow students</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.form}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
         {/* Images */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Photos <Text style={styles.required}>*</Text></Text>

@@ -36,7 +36,8 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.VIBRATE",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
@@ -66,8 +67,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "YOUR_EXPO_PROJECT_UUID_HERE"
+        "projectId": "e4ba2f26-d302-4bcd-aee7-85a8057c0330"
       }
-    }
+    },
+    "owner": "shanmukhsai"
   }
 }

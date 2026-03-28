@@ -6,6 +6,8 @@ import { notificationsApi, ApiNotification } from './api';
 
 export type { ApiNotification as FSNotification };
 
+export type FSNotifType = 'message' | 'offer' | 'review' | 'listing_view' | 'sale' | 'wishlist_match' | 'system';
+
 export async function createNotification(
   userId: string,
   type: string,

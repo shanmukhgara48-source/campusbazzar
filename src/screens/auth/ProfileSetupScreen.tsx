@@ -26,7 +26,7 @@ const YEARS = ['1st Year', '2nd Year', '3rd Year', '4th Year', 'Postgraduate', '
 
 export default function ProfileSetupScreen({ navigation, route }: Props) {
   const { email } = route.params;
-  const { login } = useAuth();
+  const { refreshUser } = useAuth();
   const [name, setName] = useState('');
   const [college, setCollege] = useState('');
   const [department, setDepartment] = useState('');
@@ -39,7 +39,7 @@ export default function ProfileSetupScreen({ navigation, route }: Props) {
       Alert.alert('Incomplete Profile', 'Please fill in all fields to continue.');
       return;
     }
-    login(email);
+    refreshUser();
   };
 
   return (

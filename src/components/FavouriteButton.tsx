@@ -21,7 +21,7 @@ export default function FavouriteButton({ listing, size = 22, style }: Props) {
       Animated.spring(scaleAnim, { toValue: 1.35, useNativeDriver: true, speed: 40 }),
       Animated.spring(scaleAnim, { toValue: 1,    useNativeDriver: true, speed: 40 }),
     ]).start();
-    await toggle(listing);
+    await toggle(listing.id);
   };
 
   return (
