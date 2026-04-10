@@ -1,67 +1,107 @@
 # CampusBazaar
 
-A smart marketplace for college students — buy, sell, and trade used books, laptops, calculators, and more.
+A smart mobile marketplace for college students — buy, sell, and trade used books, laptops, calculators, and more. Built with React Native (Expo) and Firebase.
 
 ## Features
 
-- **Buyer view** — Browse listings with category filters, saved items, secure messaging
-- **Seller view** — Dashboard with stats, list items, manage your listings
+- **Authentication** — Phone/OTP login, college email verification, profile setup
+- **Buyer view** — Browse listings with category filters, saved/wishlist items, secure in-app messaging
+- **Seller view** — Dashboard with stats, list items with image uploads, manage your listings
 - **Admin view** — Platform overview, all listings, user management, flagged item moderation
+- **Payments** — Razorpay & UPI payment integration
+- **Meetup & Safety** — Meetup scheduling and SOS button for safe exchanges
+- **Offers & Negotiation** — Make/receive offers on listings
+- **Ratings & Reviews** — Post-transaction buyer/seller reviews
+- **Notifications** — Push notifications via Expo & Firebase
+- **Offline Support** — Offline banner and graceful degradation with NetInfo
+- **Verification** — Student verification badges on profiles
+
+## Tech Stack
+
+- **React Native** (Expo SDK 54)
+- **TypeScript**
+- **Firebase** (Auth, Firestore, Storage)
+- **React Navigation** (Stack + Bottom Tabs)
+- **Expo modules** — Camera, Image Picker, Image Manipulator, Notifications, Linear Gradient, File System
+- **Razorpay** — Payments
+- **QR Code** — `react-native-qrcode-svg`
 
 ## Getting Started
 
 ### Prerequisites
-- Node.js 16+ and npm installed
+- Node.js 18+ and npm
+- Expo CLI (`npm install -g expo-cli`)
+- Expo Go app on your phone (for quick testing) or a simulator
 
 ### Install & run
 
 ```bash
 npm install
-npm start
+npm start          # starts Expo dev server
+npm run android    # run on Android
+npm run ios        # run on iOS
 ```
 
-The app will open at [http://localhost:3000](http://localhost:3000).
-
-### Build for production
-
-```bash
-npm run build
-```
+### Environment / Config
+Copy your Firebase config and API keys into `src/config.ts` (never commit secrets).
 
 ## Project Structure
 
 ```
 src/
-  components/
-    Sidebar.jsx / .module.css       — Role switcher + navigation
-    Topbar.jsx / .module.css        — Search bar + topbar actions
-    Browse.jsx / .module.css        — Buyer: browse & filter listings
-    Messages.jsx / .module.css      — Secure messaging thread
-    Saved.jsx / .module.css         — Buyer: saved/bookmarked items
-    ListItem.jsx / .module.css      — Seller: list a new item form
-    SellerDash.jsx / .module.css    — Seller: dashboard + my listings
-    AdminOverview.jsx / .module.css — Admin: stats + recent activity
-    AdminListings.jsx / .module.css — Admin: all listings table
-    AdminUsers.jsx / .module.css    — Admin: user management
-    AdminFlagged.jsx / .module.css  — Admin: flagged item moderation
-  data.js          — Shared mock data & constants
-  App.js           — Root component, routing logic
-  App.css          — Layout styles
-  index.js         — Entry point
-  index.css        — Global CSS variables & resets
+  screens/
+    auth/            — Login, OTP, SignUp, ProfileSetup
+    home/            — HomeScreen
+    listing/         — Listing detail & creation
+    messages/        — Chat threads
+    dashboard/       — Seller dashboard
+    admin/           — Admin panel screens
+    checkout/        — Checkout & payment flow
+    offers/          — Offer management
+    order/           — Order tracking
+    profile/         — User profile
+    ratings/         — Reviews & ratings
+    settings/        — App settings
+    notifications/   — Notification center
+    transaction/     — Transaction history
+    verification/    — Student verification flow
+    meetup/          — Meetup scheduling
+    wishlist/        — Saved/wishlist items
+    legal/           — Terms & Privacy
+
+  services/
+    firebase.ts           — Firebase init
+    authService.ts        — Auth helpers
+    listingService.ts     — Listing CRUD
+    chatService.ts        — Messaging
+    offerService.ts       — Offer flow
+    transactionService.ts — Transaction logic
+    razorpayService.ts    — Razorpay payments
+    upiService.ts         — UPI payments
+    r2Service.ts          — Cloud storage (R2)
+    notificationsService.ts — Push notifications
+    reviewService.ts      — Ratings & reviews
+    savedItemsService.ts  — Wishlist
+    userService.ts        — User profile
+    imageService.ts       — Image upload/compression
+    pricingService.ts     — Dynamic pricing helpers
+    storageService.ts     — Local async storage
+
+  components/           — Reusable UI components
+  navigation/           — Navigation config
+  context/              — React context providers
+  hooks/                — Custom hooks
+  data/                 — Static data & constants
+  theme/                — Colors, typography, spacing
+  types/                — TypeScript type definitions
 ```
 
-## Next Steps (to make it production-ready)
+## Contributing
 
-1. **Authentication** — Add college email verification (`.ac.in` / `.edu` domain check) using Firebase Auth or Supabase Auth
-2. **Backend / Database** — Replace mock data with Supabase or Firebase Firestore
-3. **Real messaging** — Use Firebase Realtime Database or Supabase Realtime for live chat
-4. **Image uploads** — Integrate Cloudinary or Supabase Storage for listing photos
-5. **Search** — Add full-text search with Algolia or Supabase's built-in full-text search
-6. **Notifications** — Push notifications via Firebase Cloud Messaging
+1. Fork the repo
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes and open a PR
 
-## Tech Stack
+## License
 
-- React 18
-- CSS Modules
-- Google Fonts (Lora + Inter)
+MIT
